@@ -40,11 +40,14 @@ def pytest_configure(config: pytest.Config) -> None:
     else:
         return
 
+    os.environ.setdefault("ALEMBIC_STARTUP_CHECK", "false")
+    os.environ.setdefault(
+        "SQLALCHEMY_DATABASE_URL", "sqlite+aiosqlite:///fanqie.db"
+    )
+
     nonebot.init(
         DRIVER="~fastapi+~httpx+~websockets",
         COMMAND_START=["", "/"],
-        ALEMBIC_STARTUP_CHECK=False,
-        SQLALCHEMY_DATABASE_URL="sqlite+aiosqlite:///fanqie.db",
         localstore_cache_dir=_LOCALSTORE_ROOT / "cache",
         localstore_config_dir=_LOCALSTORE_ROOT / "config",
         localstore_data_dir=_LOCALSTORE_ROOT / "data",
