@@ -58,15 +58,6 @@ keep_cmd = on_command(
     block=True,
 )
 
-# 超级用户解禁命令：解禁本群指定成员。
-unmute_cmd = on_command(
-    "解禁",
-    aliases={"解除禁言", "unmute"},
-    permission=SUPERUSER,
-    priority=5,
-    block=True,
-)
-
 # 配置热重载：管理员手动触发重新加载策略与提取规则 TOML。
 reload_config_cmd = on_command(
     "重载番茄OCR配置",
@@ -86,5 +77,4 @@ __all__ = [
     "keep_cmd",
     "kick_cmd",
     "reload_config_cmd",
-    "unmute_cmd",
 ]

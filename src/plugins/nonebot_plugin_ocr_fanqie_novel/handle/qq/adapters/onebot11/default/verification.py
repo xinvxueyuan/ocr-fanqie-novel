@@ -26,7 +26,6 @@ from ......handle.qq.commands.verification import (
     keep_cmd,
     kick_cmd,
     reload_config_cmd,
-    unmute_cmd,
 )
 from ......services.verification import (
     PolicyConfigError,
@@ -272,45 +271,6 @@ async def on_admin_keep(
         group_id=event.group_id,
         user_id=target_user_id,
         keep=True,
-    )
-    await bot.send_group_msg(group_id=event.group_id, message=reply)
-
-
-@_register(unmute_cmd)
-async def on_admin_unmute(
-    bot: OneBot11Bot,
-    event: GroupMessageEvent,
-    args: Message = CommandArg(),
-) -> None:
-    """解禁本群指定成员（超级用户，参照对象项目 member_unmute 命令）。
-
-    命令权限已在 matcher 层由 ``SUPERUSER`` 把关。
-
-    """
-    target_user_id = _extract_target_user(args, event)
-    if target_user_id is None:
-        hint = MessageSegment.at(event.user_id) + (
-            " 请提供成员 QQ 号，例如：解禁 @成员"
-        )
-        await bot.send_group_msg(group_id=event.group_id, message=hint)
-        return
-    try:
-        await bot.set_group_ban(
-            group_id=event.group_id,
-            user_id=target_user_id,
-            duration=0,
-        )
-    except Exception:
-        logger.exception(
-            "解禁失败 group=%s user=%s",
-            event.group_id,
-            target_user_id,
-        )
-        reply = MessageSegment.at(event.user_id) + " 解禁失败，请检查机器人权限。"
-        await bot.send_group_msg(group_id=event.group_id, message=reply)
-        return
-    reply = MessageSegment.at(event.user_id) + (
-        f" 已解禁成员 {target_user_id}。"
     )
     await bot.send_group_msg(group_id=event.group_id, message=reply)
 
