@@ -11,6 +11,7 @@
 ``is_sufficient`` 检查。
 
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

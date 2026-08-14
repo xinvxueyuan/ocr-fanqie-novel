@@ -456,7 +456,9 @@ async def test_image_submission_handles_pending_member_image(
                         OCRTextLine(text="新v学员", confidence=0.98, box=_box(30)),
                         OCRTextLine(text="我", confidence=0.97, box=_box(40)),
                         OCRTextLine(text="刚刚", confidence=0.96, box=_box(60)),
-                        OCRTextLine(text="阅读2小时后点评", confidence=0.95, box=_box(80)),
+                        OCRTextLine(
+                            text="阅读2小时后点评", confidence=0.95, box=_box(80)
+                        ),
                         OCRTextLine(
                             text="综漫：吉他雇佣兵无法找到归宿？",
                             confidence=0.98,
@@ -521,14 +523,19 @@ def _image_message_event() -> Any:
         sender={"user_id": _USER_ID, "nickname": "t", "role": "member"},
         raw_message="[CQ:image,file=x.jpg]",
         message=Message([
-            MessageSegment(type="image", data={"file": "x.jpg", "url": "https://e.com/x.jpg"})
+            MessageSegment(
+                type="image", data={"file": "x.jpg", "url": "https://e.com/x.jpg"}
+            )
         ]),
         font=0,
     )  # type: ignore[call-arg]
 
 
 @pytest.mark.asyncio
-async def test_kick_cmd_superuser_runs(app: App) -> None:
+async def test_kick_cmd_superuser_runs(
+    app: App,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """超级用户执行 /kick 应能走通命令流程（不触发依赖注入错误）。"""
     from nonebot.adapters.onebot.v11 import (
         Bot as OneBot11Bot,
@@ -556,7 +563,6 @@ async def test_kick_cmd_superuser_runs(app: App) -> None:
             shut_up_timestamp=0,
         )
 
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(actions, "get_member_info", fake_get_member_info)
 
     store = get_session_store()
@@ -596,8 +602,6 @@ async def test_kick_cmd_superuser_runs(app: App) -> None:
         )
         ctx.receive_event(bot, event)
 
-    monkeypatch.undo()
-
 
 @pytest.mark.asyncio
 async def test_group_ban_superuser_auto_unmute(app: App) -> None:
@@ -625,9 +629,5 @@ async def test_group_ban_superuser_non_monitored_no_unmute(app: App) -> None:
 
     async with app.test_matcher(cmd_module.group_ban) as ctx:
         bot = ctx.create_bot(base=OneBot11Bot)
-        event = GroupBanNoticeEvent(
-            **_ban_event(group_id=999, user_id=superuser_id)
-        )
+        event = GroupBanNoticeEvent(**_ban_event(group_id=999, user_id=superuser_id))
         ctx.receive_event(bot, event)
-
-

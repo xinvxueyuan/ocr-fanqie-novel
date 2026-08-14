@@ -45,6 +45,7 @@ class _FakeOCRResult(Protocol):
 class _FakeClient(Protocol):
     async def ocr(self, **kwargs: Any) -> _FakeOCRResult: ...
 
+
 _DEFAULT_API_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
 _POLL_INTERVAL_SECONDS = 5.0
 
@@ -319,8 +320,7 @@ class OCRClient:
             fake = self._client
             result = await fake.ocr(file_path=file_path, file_url=file_url, model=model)
             pages = [
-                _pruned_result_to_page(page.pruned_result)
-                for page in result.pages
+                _pruned_result_to_page(page.pruned_result) for page in result.pages
             ]
             return OCRResult(job_id=result.job_id, pages=pages)
 

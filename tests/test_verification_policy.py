@@ -67,7 +67,9 @@ def test_author_hit_passes() -> None:
     group = GroupPolicy(
         group_id=_GROUP,
         authors=(
-            AuthorEntry(name="阿百川大鬼", books=frozenset({"综漫：吉他雇佣兵无法找到归宿？"})),
+            AuthorEntry(
+                name="阿百川大鬼", books=frozenset({"综漫：吉他雇佣兵无法找到归宿？"})
+            ),
             AuthorEntry(name="刘慈欣", books=frozenset({"三体"})),
         ),
     )

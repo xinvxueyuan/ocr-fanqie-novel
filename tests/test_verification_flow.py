@@ -209,6 +209,7 @@ async def test_handle_submission_other_review_retries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """他人书评（无「我」徽章）应视为信息不足并重试。"""
+
     async def fake_recognize(url: str) -> Any:  # noqa: ARG001
         return _ocr_result_other_review()
 
@@ -487,6 +488,7 @@ async def test_handle_submission_member_already_left(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """成员已退群时，提交截图应直接结束会话。"""
+
     async def fake_recognize(url: str) -> Any:  # noqa: ARG001
         return _ocr_result_with_evidence()
 

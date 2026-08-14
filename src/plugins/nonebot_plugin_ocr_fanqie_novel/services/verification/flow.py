@@ -5,6 +5,7 @@
 matcher，便于测试。
 
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -293,8 +294,7 @@ async def _increment_retry(
             ),
         )
         return (
-            f"连续 {plugin_config.fanqie_max_attempts} 次识别失败，"
-            "已通知管理员处理。"
+            f"连续 {plugin_config.fanqie_max_attempts} 次识别失败，已通知管理员处理。"
         )
 
     await _persist_session(store.end(str(group_id), str(user_id), status="failed"))

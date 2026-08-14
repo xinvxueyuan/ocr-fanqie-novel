@@ -5,6 +5,7 @@ PRD 第 8 节允许单机内存会话存储，重启丢失无关紧要。本模�
 一个超时协程（FR7）。会话状态变化时同步更新数据库以便审计回溯。
 
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -81,9 +82,7 @@ class SessionStore:
     def list_waiting(self) -> tuple[SessionRecord, ...]:
         """返回所有 waiting 状态会话的快照。"""
         return tuple(
-            record
-            for record in self._sessions.values()
-            if record.status == "waiting"
+            record for record in self._sessions.values() if record.status == "waiting"
         )
 
     def start(

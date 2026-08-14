@@ -225,9 +225,7 @@ def _decorate_notice(message: str, group_id: int, user_id: int) -> str:
     policy = get_policy()
     group = policy.group_policy(group_id)
     allowed = (
-        ", ".join(sorted(group.author_names))
-        if group and group.authors
-        else "未配置"
+        ", ".join(sorted(group.author_names)) if group and group.authors else "未配置"
     )
     return (
         f"{message}\n"

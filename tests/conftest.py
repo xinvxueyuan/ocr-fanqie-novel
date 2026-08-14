@@ -41,9 +41,9 @@ def pytest_configure(config: pytest.Config) -> None:
         return
 
     os.environ.setdefault("ALEMBIC_STARTUP_CHECK", "false")
-    os.environ.setdefault(
-        "SQLALCHEMY_DATABASE_URL", "sqlite+aiosqlite:///fanqie.db"
-    )
+    os.environ.setdefault("SQLALCHEMY_DATABASE_URL", "sqlite+aiosqlite:///fanqie.db")
+    os.environ.setdefault("SUPERUSERS", '["1330509996"]')
+    os.environ.setdefault("FANQIE_ADMIN_IDS", "[1330509996]")
 
     nonebot.init(
         DRIVER="~fastapi+~httpx+~websockets",

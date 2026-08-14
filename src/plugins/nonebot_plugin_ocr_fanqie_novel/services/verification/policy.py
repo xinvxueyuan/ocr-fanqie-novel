@@ -283,9 +283,7 @@ def _load_policy_data(path: Path) -> dict[str, Any]:
 
     loaded = load_toml_dict_sync(path, default=_DEFAULT_POLICY)
     if "verification" not in loaded:
-        raise PolicyConfigError(
-            f"策略配置缺失 [verification] 表，请检查 {path}"
-        )
+        raise PolicyConfigError(f"策略配置缺失 [verification] 表，请检查 {path}")
     return _deep_merge(_DEFAULT_POLICY, loaded)
 
 
@@ -338,9 +336,7 @@ def _parse_group_id(raw: Any, raw_group: Any) -> int:
     try:
         group_id = int(str(raw).strip())
     except (TypeError, ValueError) as exc:
-        raise PolicyConfigError(
-            f"策略配置群号无效: {raw!r}"
-        ) from exc
+        raise PolicyConfigError(f"策略配置群号无效: {raw!r}") from exc
     if not isinstance(raw_group, dict):
         raise PolicyConfigError(
             f"策略配置群 {group_id} 应为表，实际为 {type(raw_group).__name__}"
