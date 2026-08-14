@@ -134,17 +134,12 @@ async def on_group_admin_change(
 
 @_register(group_ban)
 async def on_group_ban(
-    bot: OneBot11Bot,
     event: GroupBanNoticeEvent,
 ) -> None:
-    """群禁言事件：同步会话禁言状态；超级用户在监控群被禁言则自动解禁。"""
+    """群禁言事件：同步会话禁言状态。"""
     store = get_session_store()
 
     if event.sub_type == "ban":
-        if _is_superuser(int(event.user_id)) and (
-            await _auto_unmute_superuser(bot, event)
-        ):
-            return
         record = store.get(str(event.group_id), str(event.user_id))
         if record is not None:
             store.set_muted(str(event.group_id), str(event.user_id), is_muted=True)
@@ -158,43 +153,6 @@ async def on_group_ban(
         record = store.get(str(event.group_id), str(event.user_id))
         if record is not None:
             store.set_muted(str(event.group_id), str(event.user_id), is_muted=False)
-
-
-def _is_superuser(user_id: int) -> bool:
-    """是否为配置的超级用户。"""
-    from nonebot import get_driver
-
-    return str(user_id) in get_driver().config.superusers
-
-
-async def _auto_unmute_superuser(
-    bot: OneBot11Bot,
-    event: GroupBanNoticeEvent,
-) -> bool:
-    """超级用户在监控群被禁言时自动解禁；返回是否已处理。"""
-    from ......services.verification import get_policy
-
-    if not get_policy().should_monitor_group(event.group_id):
-        return False
-    try:
-        await bot.set_group_ban(
-            group_id=event.group_id,
-            user_id=event.user_id,
-            duration=0,
-        )
-    except Exception:
-        logger.exception(
-            "自动解禁超级用户失败 group=%s user=%s",
-            event.group_id,
-            event.user_id,
-        )
-        return False
-    logger.info(
-        "超级用户 %s 在监控群 %s 被禁言，已自动解禁",
-        event.user_id,
-        event.group_id,
-    )
-    return True
 
 
 @_register(image_submission)

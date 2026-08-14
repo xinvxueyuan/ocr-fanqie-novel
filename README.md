@@ -16,7 +16,6 @@
 - **FR9 管理员命令**：`/kick`、`/keep` 决定踢出或保留
 - **运行时重载**：`重载番茄OCR配置` 命令热更新放行策略
 - **边界守卫**：监听退群/管理员变动/禁言事件，操作前查询群成员状态，避免对已退出成员执行无效动作
-- **超级用户保护**：超级用户在监控群被禁言时自动解禁
 
 ## 如何开始
 
@@ -37,7 +36,8 @@
 
    至少需要配置：
    - `FANQIE_OCR_API_TOKEN`：PaddleOCR 云端 API 令牌
-   - `SUPERUSERS` / `FANQIE_ADMIN_IDS`：管理员 QQ 号
+   - `SUPERUSERS` / `FANQIE_ADMIN_IDS`：管理员 QQ 号（`/kick`、`/keep`、
+     `重载番茄OCR配置` 命令权限，NoneBot 要求 SUPERUSER）
    - 群范围：放行策略 TOML 中配置群节点（配置了节点的群才验证）
 
 3. 配置 OneBot V11 反向 WebSocket：

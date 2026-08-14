@@ -601,33 +601,3 @@ async def test_kick_cmd_superuser_runs(
             {"group_id": _GROUP_ID, "message": "已将该成员移出群聊。"},
         )
         ctx.receive_event(bot, event)
-
-
-@pytest.mark.asyncio
-async def test_group_ban_superuser_auto_unmute(app: App) -> None:
-    """超级用户在监控群被禁言应自动解禁。"""
-    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupBanNoticeEvent
-
-    superuser_id = 1330509996
-
-    async with app.test_matcher(cmd_module.group_ban) as ctx:
-        bot = ctx.create_bot(base=OneBot11Bot)
-        event = GroupBanNoticeEvent(**_ban_event(user_id=superuser_id))
-        ctx.should_call_api(
-            "set_group_ban",
-            {"group_id": _GROUP_ID, "user_id": superuser_id, "duration": 0},
-        )
-        ctx.receive_event(bot, event)
-
-
-@pytest.mark.asyncio
-async def test_group_ban_superuser_non_monitored_no_unmute(app: App) -> None:
-    """超级用户在非监控群被禁言不应自动解禁。"""
-    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupBanNoticeEvent
-
-    superuser_id = 1330509996
-
-    async with app.test_matcher(cmd_module.group_ban) as ctx:
-        bot = ctx.create_bot(base=OneBot11Bot)
-        event = GroupBanNoticeEvent(**_ban_event(group_id=999, user_id=superuser_id))
-        ctx.receive_event(bot, event)
