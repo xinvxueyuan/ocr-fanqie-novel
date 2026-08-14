@@ -1,0 +1,675 @@
+"""事件响应器行为测试（基于 nonebug 官方行为测试实践）。
+
+通过 ``app.test_matcher`` 驱动真实的事件响应器与处理器，并用
+``ctx.should_call_api`` 断言预期的平台接口调用，覆盖 FR1（入群引导）、
+退群/禁言/管理员变动边界。图片提交与管理员命令的 in-handler 逻辑通过
+直接调用处理器函数验证（nonebug 对未声明的 API 调用采用严格模式）。
+
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator, Generator
+import time
+from typing import Any
+
+from nonebug import App
+import pytest
+
+from src.plugins.nonebot_plugin_ocr_fanqie_novel.handle.qq.commands import (
+    verification as cmd_module,
+)
+
+_SELF_ID = 12345
+_GROUP_ID = 123
+_USER_ID = 10001
+_ADMIN_ID = 90001
+_MEMBER_INFO = {
+    "user_id": _USER_ID,
+    "role": "member",
+    "card": "",
+    "nickname": "某用户",
+    "shut_up_timestamp": 0,
+}
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_session_store() -> Generator[None]:
+    """每个行为测试后重置会话存储与策略缓存，避免状态泄漏。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        policy as policy_module,
+        session as session_module,
+    )
+
+    before = session_module._store
+    policy_before = policy_module._policy_cache
+    session_module._store = None
+    try:
+        yield
+    finally:
+        session_module._store = before
+        policy_module._policy_cache = policy_before
+
+
+@pytest.fixture(autouse=True)
+def _default_monitored_group() -> Generator[None]:
+    """默认让群 _GROUP_ID 处于监控范围（配置作者节点）。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        policy as policy_module,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification.policy import (
+        AuthorEntry,
+        GroupPolicy,
+        VerificationPolicy,
+    )
+
+    before = policy_module._policy_cache
+    policy_module._policy_cache = VerificationPolicy(
+        require_all=False,
+        required_elements=frozenset({"book_name", "author"}),
+        groups={
+            _GROUP_ID: GroupPolicy(
+                group_id=_GROUP_ID,
+                authors=(AuthorEntry(name="阿百川大鬼"),),
+            ),
+        },
+    )
+    try:
+        yield
+    finally:
+        policy_module._policy_cache = before
+
+
+@pytest.fixture(autouse=True)
+async def _drain_timeout_tasks() -> AsyncGenerator[None]:
+    """排空会话存储的超时任务，避免已取消任务在 teardown 时产生警告。"""
+    import asyncio
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    try:
+        yield
+    finally:
+        store = get_session_store()
+        tasks = list(store._timeout_tasks.values())
+        store._timeout_tasks.clear()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@pytest.fixture(autouse=True)
+def _quiet_background_tasks() -> Generator[None]:
+    """行为测试不持久化消息存储，避免后台 DB 任务未等待。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.core.config import plugin_config
+
+    enabled_before = plugin_config.fanqie_message_store_enabled
+    plugin_config.fanqie_message_store_enabled = False
+    try:
+        yield
+    finally:
+        plugin_config.fanqie_message_store_enabled = enabled_before
+
+
+def _ban_event(**overrides: Any) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "time": int(time.time()),
+        "self_id": _SELF_ID,
+        "post_type": "notice",
+        "notice_type": "group_ban",
+        "sub_type": "ban",
+        "group_id": _GROUP_ID,
+        "operator_id": _ADMIN_ID,
+        "user_id": _USER_ID,
+        "duration": 600,
+    }
+    data.update(overrides)
+    return data
+
+
+def _start_session() -> None:
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    get_session_store().start(
+        group_id=str(_GROUP_ID),
+        user_id=str(_USER_ID),
+        bot_id=str(_SELF_ID),
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+
+
+@pytest.mark.asyncio
+async def test_group_increase_sends_guide(app: App) -> None:
+    """FR1：入群事件应创建会话并查询成员信息。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        GroupIncreaseNoticeEvent,
+        Message,
+        MessageSegment,
+    )
+
+    async with app.test_matcher(cmd_module.group_increase) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupIncreaseNoticeEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="notice",
+            notice_type="group_increase",
+            sub_type="approve",
+            group_id=_GROUP_ID,
+            operator_id=1,
+            user_id=_USER_ID,
+        )
+        from src.plugins.nonebot_plugin_ocr_fanqie_novel.core.config import (
+            plugin_config,
+        )
+
+        welcome = (
+            f" {plugin_config.fanqie_welcome_message} "
+            "请在 5 分钟内发送，超时后将由管理员人工处理。"
+        )
+        expected_message = Message(MessageSegment.at(_USER_ID)) + welcome
+        ctx.should_call_api(
+            "get_group_member_info",
+            {"group_id": _GROUP_ID, "user_id": _USER_ID, "no_cache": True},
+            result=_MEMBER_INFO,
+        )
+        ctx.should_call_api(
+            "send_group_msg",
+            {"group_id": _GROUP_ID, "message": expected_message},
+        )
+        ctx.receive_event(bot, event)
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    record = get_session_store().get(str(_GROUP_ID), str(_USER_ID))
+    assert record is not None
+    assert record.status == "waiting"
+
+
+@pytest.mark.asyncio
+async def test_group_increase_not_monitored_skips(app: App) -> None:
+    """群不在监控白名单时应跳过验证，不发引导。"""
+    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupIncreaseNoticeEvent
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        policy as policy_module,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification.policy import (
+        AuthorEntry,
+        GroupPolicy,
+        VerificationPolicy,
+    )
+
+    policy_module._policy_cache = VerificationPolicy(
+        require_all=False,
+        required_elements=frozenset({"book_name", "author"}),
+        groups={
+            456: GroupPolicy(
+                group_id=456,
+                authors=(AuthorEntry(name="阿百川大鬼"),),
+            ),
+        },
+    )
+
+    async with app.test_matcher(cmd_module.group_increase) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupIncreaseNoticeEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="notice",
+            notice_type="group_increase",
+            sub_type="approve",
+            group_id=_GROUP_ID,
+            operator_id=1,
+            user_id=_USER_ID,
+        )
+        ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
+async def test_group_ban_syncs_muted_state(app: App) -> None:
+    """群禁言事件应同步会话禁言状态。"""
+    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupBanNoticeEvent
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    _start_session()
+
+    async with app.test_matcher(cmd_module.group_ban) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupBanNoticeEvent(**_ban_event())
+        ctx.receive_event(bot, event)
+
+    record = get_session_store().get(str(_GROUP_ID), str(_USER_ID))
+    assert record is not None
+    assert record.is_muted is True
+
+
+@pytest.mark.asyncio
+async def test_group_ban_lift_updates_state(app: App) -> None:
+    """解除禁言事件应更新会话状态。"""
+    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupBanNoticeEvent
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    _start_session()
+    store = get_session_store()
+    store.set_muted(str(_GROUP_ID), str(_USER_ID), is_muted=True)
+
+    async with app.test_matcher(cmd_module.group_ban) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupBanNoticeEvent(**_ban_event(sub_type="lift_ban", duration=0))
+        ctx.receive_event(bot, event)
+
+    record = store.get(str(_GROUP_ID), str(_USER_ID))
+    assert record is not None
+    assert record.is_muted is False
+
+
+@pytest.mark.asyncio
+async def test_group_admin_change_approves_waiting(app: App) -> None:
+    """待验证成员被设为管理员应直接放行。"""
+    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupAdminNoticeEvent
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    _start_session()
+
+    async with app.test_matcher(cmd_module.group_admin_change) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupAdminNoticeEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="notice",
+            notice_type="group_admin",
+            sub_type="set",
+            group_id=_GROUP_ID,
+            user_id=_USER_ID,
+        )
+        ctx.receive_event(bot, event)
+
+    record = get_session_store().get(str(_GROUP_ID), str(_USER_ID))
+    assert record is not None
+    assert record.status == "approved"
+
+
+@pytest.mark.asyncio
+async def test_group_decrease_clears_session(app: App) -> None:
+    """成员退群应清除验证会话。"""
+    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupDecreaseNoticeEvent
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    _start_session()
+
+    async with app.test_matcher(cmd_module.group_decrease) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupDecreaseNoticeEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="notice",
+            notice_type="group_decrease",
+            sub_type="leave",
+            group_id=_GROUP_ID,
+            operator_id=_USER_ID,
+            user_id=_USER_ID,
+        )
+        ctx.receive_event(bot, event)
+
+    assert get_session_store().get(str(_GROUP_ID), str(_USER_ID)) is None
+
+
+@pytest.mark.asyncio
+async def test_group_decrease_kick_me_clears_group(app: App) -> None:
+    """机器人被移出群应清理该群全部会话。"""
+    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupDecreaseNoticeEvent
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    _start_session()
+    store = get_session_store()
+    store.start(
+        group_id=str(_GROUP_ID),
+        user_id="10002",
+        bot_id=str(_SELF_ID),
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+
+    async with app.test_matcher(cmd_module.group_decrease) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupDecreaseNoticeEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="notice",
+            notice_type="group_decrease",
+            sub_type="kick_me",
+            group_id=_GROUP_ID,
+            operator_id=_ADMIN_ID,
+            user_id=_SELF_ID,
+        )
+        ctx.receive_event(bot, event)
+
+    assert store.get(str(_GROUP_ID), str(_USER_ID)) is None
+    assert store.get(str(_GROUP_ID), "10002") is None
+
+
+@pytest.mark.asyncio
+async def test_image_submission_ignores_plain_message(app: App) -> None:
+    """无图片消息应被忽略，不触发 OCR。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        GroupMessageEvent,
+        Message,
+        MessageSegment,
+    )
+
+    async with app.test_matcher(cmd_module.image_submission) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupMessageEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="message",
+            message_type="group",
+            sub_type="normal",
+            message_id=1,
+            group_id=_GROUP_ID,
+            user_id=_USER_ID,
+            anonymous=None,
+            sender={"user_id": _USER_ID, "nickname": "t", "role": "member"},
+            raw_message="hello",
+            message=Message([MessageSegment.text("hello")]),
+            font=0,
+        )  # type: ignore[call-arg]
+        ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
+async def test_image_submission_handles_pending_member_image(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """待验证成员发送图片：in-handler 检查应通过并走完验证流程。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.handle.qq.adapters.onebot11.default import (
+        verification as handle_module,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        actions,
+        flow as flow_module,
+        get_session_store,
+        policy as policy_module,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification.policy import (
+        AuthorEntry,
+        GroupPolicy,
+        VerificationPolicy,
+    )
+
+    policy_module._policy_cache = VerificationPolicy(
+        require_all=False,
+        required_elements=frozenset({"book_name", "author"}),
+        groups={
+            _GROUP_ID: GroupPolicy(
+                group_id=_GROUP_ID,
+                authors=(AuthorEntry(name="阿百川大鬼"),),
+            ),
+        },
+    )
+
+    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
+        from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.ocr import (
+            OCRPage,
+            OCRResult,
+            OCRTextLine,
+        )
+
+        def _box(y: int) -> list[list[int]]:
+            return [[0, y], [100, y], [100, y + 20], [0, y + 20]]
+
+        return OCRResult(
+            job_id="job-pass",
+            pages=[
+                OCRPage(
+                    lines=[
+                        OCRTextLine(text="书评详情", confidence=0.99, box=_box(0)),
+                        OCRTextLine(text="新v学员", confidence=0.98, box=_box(30)),
+                        OCRTextLine(text="我", confidence=0.97, box=_box(40)),
+                        OCRTextLine(text="刚刚", confidence=0.96, box=_box(60)),
+                        OCRTextLine(text="阅读2小时后点评", confidence=0.95, box=_box(80)),
+                        OCRTextLine(
+                            text="综漫：吉他雇佣兵无法找到归宿？",
+                            confidence=0.98,
+                            box=_box(200),
+                        ),
+                        OCRTextLine(text="阿百川大鬼", confidence=0.97, box=_box(220)),
+                    ]
+                )
+            ],
+        )
+
+    async def fake_get_member_info(
+        bot: Any,
+        group_id: int,
+        user_id: int,
+    ) -> Any:
+        _ = (bot, group_id, user_id)
+        return actions.MemberInfo(
+            user_id=_USER_ID,
+            role="member",
+            card="",
+            nickname="某用户",
+            shut_up_timestamp=0,
+        )
+
+    class FakeBot:
+        self_id = str(_SELF_ID)
+
+        def __init__(self) -> None:
+            self.calls: list[Any] = []
+
+        async def send_group_msg(self, **kwargs: Any) -> None:
+            self.calls.append(("send_group_msg", kwargs))
+
+    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(actions, "get_member_info", fake_get_member_info)
+
+    _start_session()
+    bot: Any = FakeBot()
+    await handle_module.on_image_submission(bot, _image_message_event())
+
+    record = get_session_store().get(str(_GROUP_ID), str(_USER_ID))
+    assert record is not None
+    assert record.status == "approved"
+    assert any(c[0] == "send_group_msg" for c in bot.calls)
+
+
+def _image_message_event() -> Any:
+    """构造带图片的群消息事件。"""
+    from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, MessageSegment
+
+    return GroupMessageEvent(
+        time=int(time.time()),
+        self_id=_SELF_ID,
+        post_type="message",
+        message_type="group",
+        sub_type="normal",
+        message_id=1,
+        group_id=_GROUP_ID,
+        user_id=_USER_ID,
+        anonymous=None,
+        sender={"user_id": _USER_ID, "nickname": "t", "role": "member"},
+        raw_message="[CQ:image,file=x.jpg]",
+        message=Message([
+            MessageSegment(type="image", data={"file": "x.jpg", "url": "https://e.com/x.jpg"})
+        ]),
+        font=0,
+    )  # type: ignore[call-arg]
+
+
+@pytest.mark.asyncio
+async def test_kick_cmd_superuser_runs(app: App) -> None:
+    """超级用户执行 /kick 应能走通命令流程（不触发依赖注入错误）。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        GroupMessageEvent,
+        Message,
+        MessageSegment,
+    )
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        actions,
+        get_session_store,
+    )
+
+    async def fake_get_member_info(
+        bot: Any,
+        group_id: int,
+        user_id: int,
+    ) -> Any:
+        _ = (bot, group_id, user_id)
+        return actions.MemberInfo(
+            user_id=user_id,
+            role="member",
+            card="",
+            nickname="某用户",
+            shut_up_timestamp=0,
+        )
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(actions, "get_member_info", fake_get_member_info)
+
+    store = get_session_store()
+    store.start(
+        group_id=str(_GROUP_ID),
+        user_id=str(_USER_ID),
+        bot_id=str(_SELF_ID),
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+
+    async with app.test_matcher(cmd_module.kick_cmd) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupMessageEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="message",
+            message_type="group",
+            sub_type="normal",
+            message_id=1,
+            group_id=_GROUP_ID,
+            user_id=1330509996,
+            anonymous=None,
+            sender={"user_id": 1330509996, "nickname": "owner", "role": "owner"},
+            raw_message="/kick 10001",
+            message=Message([MessageSegment.text("/kick 10001")]),
+            font=0,
+        )  # type: ignore[call-arg]
+        ctx.should_call_api(
+            "set_group_kick",
+            {"group_id": _GROUP_ID, "user_id": _USER_ID},
+        )
+        ctx.should_call_api(
+            "send_group_msg",
+            {"group_id": _GROUP_ID, "message": "已将该成员移出群聊。"},
+        )
+        ctx.receive_event(bot, event)
+
+    monkeypatch.undo()
+
+
+@pytest.mark.asyncio
+async def test_group_ban_superuser_auto_unmute(app: App) -> None:
+    """超级用户在监控群被禁言应自动解禁。"""
+    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupBanNoticeEvent
+
+    superuser_id = 1330509996
+
+    async with app.test_matcher(cmd_module.group_ban) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupBanNoticeEvent(**_ban_event(user_id=superuser_id))
+        ctx.should_call_api(
+            "set_group_ban",
+            {"group_id": _GROUP_ID, "user_id": superuser_id, "duration": 0},
+        )
+        ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
+async def test_group_ban_superuser_non_monitored_no_unmute(app: App) -> None:
+    """超级用户在非监控群被禁言不应自动解禁。"""
+    from nonebot.adapters.onebot.v11 import Bot as OneBot11Bot, GroupBanNoticeEvent
+
+    superuser_id = 1330509996
+
+    async with app.test_matcher(cmd_module.group_ban) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupBanNoticeEvent(
+            **_ban_event(group_id=999, user_id=superuser_id)
+        )
+        ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
+async def test_unmute_cmd_superuser(app: App) -> None:
+    """超级用户执行「解禁 @成员」应调用 set_group_ban(duration=0)。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        GroupMessageEvent,
+        Message,
+        MessageSegment,
+    )
+
+    async with app.test_matcher(cmd_module.unmute_cmd) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupMessageEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="message",
+            message_type="group",
+            sub_type="normal",
+            message_id=1,
+            group_id=_GROUP_ID,
+            user_id=1330509996,
+            anonymous=None,
+            sender={"user_id": 1330509996, "nickname": "owner", "role": "owner"},
+            raw_message="解禁 @10001",
+            message=Message([
+                MessageSegment.text("解禁 "),
+                MessageSegment.at(_USER_ID),
+            ]),
+            font=0,
+        )  # type: ignore[call-arg]
+        ctx.should_call_api(
+            "set_group_ban",
+            {"group_id": _GROUP_ID, "user_id": _USER_ID, "duration": 0},
+        )
+        ctx.should_call_api(
+            "send_group_msg",
+            {
+                "group_id": _GROUP_ID,
+                "message": Message(MessageSegment.at(1330509996)) + f" 已解禁成员 {_USER_ID}。",
+            },
+        )
+        ctx.receive_event(bot, event)

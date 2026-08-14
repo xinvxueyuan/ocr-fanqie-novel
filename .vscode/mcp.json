@@ -1,0 +1,33 @@
+{
+  "servers": {
+    "napcat-api": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "apifox-mcp-server@latest",
+        "--site-id=5348325"
+      ]
+    },
+    "io.github.upstash/context7": {
+      "version": "1.0.31",
+      "command": "npx",
+      "type": "stdio",
+      "args": [
+        "@upstash/context7-mcp@1.0.31"
+      ],
+      "env": {
+        "CONTEXT7_API_KEY": "${input:CONTEXT7_API_KEY}"
+      },
+      "gallery": "https://api.mcp.github.com"
+    }
+  },
+  "inputs": [
+    {
+      "type": "promptString",
+      "description": "API key for authentication",
+      "password": true,
+      "id": "CONTEXT7_API_KEY"
+    }
+  ]
+}

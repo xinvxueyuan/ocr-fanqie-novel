@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+#
+# Task dependency graph (maintainer reference):
+#   install    → uv sync
+#   up         → uv sync --upgrade
+#   check      → ruff check, ruff format check, pyright
+#   test       → pytest
+#   format     → ruff format
+#   fix        → ruff check --fix, ruff format
+#   ci         → check → test
+#   run        → nb run --reload
+
+version: "3"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  install:
+    desc: Install all dependencies
+    cmds:
+      - uv sync --all-groups
+
+  up:
+    desc: Update all dependencies
+    cmds:
+      - uv sync --all-groups --upgrade
+
+  check:
+    desc: Run all static checks (lint + format + type check)
+    cmds:
+      - uv run -m ruff check . --output-format=github
+      - uv run -m ruff format --check .
+      - uv run -m pyright
+
+  test:
+    desc: Run all tests
+    cmds:
+      - uv run -m pytest {{.CLI_ARGS}}
+
+  format:
+    desc: Format all code
+    cmds:
+      - uv run -m ruff format .
+
+  fix:
+    desc: Auto-fix all linting and type issues
+    cmds:
+      - uv run -m ruff check --fix .
+      - uv run -m ruff format .
+
+  ci:
+    desc: Run the full local CI sequence
+    cmds:
+      - task: check
+      - task: test
+
+  run:
+    desc: Run the bot locally with hot-reload
+    cmds:
+      - uv run nb run --reload

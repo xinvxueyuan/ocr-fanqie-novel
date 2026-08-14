@@ -1,0 +1,70 @@
+name: 🧪 Python CI
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "**.py"
+      - "**.toml"
+      - "uv.lock"
+      - "Taskfile.yml"
+      - ".github/workflows/python.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "**.py"
+      - "**.toml"
+      - "uv.lock"
+      - "Taskfile.yml"
+      - ".github/workflows/python.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-ci-${{ github.ref }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  static-analysis:
+    name: 🔍 Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      - name: 🔨 Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install Python dependencies
+        run: uv sync --group lint --frozen
+      - name: Ruff check
+        run: uv run -m ruff check . --output-format=github
+      - name: Ruff format check
+        run: uv run -m ruff format --check .
+
+  typecheck-and-test:
+    name: 🧪 Tests & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      - name: 🔨 Setup uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install Python dependencies
+        run: uv sync --all-groups --frozen
+      - name: Type Check (Pyright)
+        run: uv run -m pyright
+      - name: Run Tests
+        run: uv run -m pytest --junitxml=test-results/pytest.xml
+      - name: Upload Coverage Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            test-results/coverage.xml
+            htmlcov/
+          retention-days: 14

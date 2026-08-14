@@ -1,0 +1,81 @@
+"""pytest 配置与 NoneBot 初始化。
+
+此模块负责配置 pytest 测试框架与 NoneBot 异步驱动程序。
+
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import nonebot
+from nonebot.adapters.onebot.v11 import Adapter as ONEBOT_V11Adapter
+from nonebug import NONEBOT_START_LIFESPAN
+import pytest
+
+_PYPROJECT = Path(__file__).parent.parent / "pyproject.toml"
+_LOCALSTORE_ROOT = Path(".pytest-localstore") / "master"
+
+
+def _disable_nonebug_auto_lifespan(config: pytest.Config) -> None:
+    """Keep nonebug from starting the full driver lifespan for every test run."""
+    config.stash[NONEBOT_START_LIFESPAN] = True
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """在收集测试之前初始化 NoneBot 驱动。
+
+    Args:
+        config: pytest 的配置对象。
+
+    """
+    os.environ.setdefault("ENVIRONMENT", "test")
+    _disable_nonebug_auto_lifespan(config)
+
+    try:
+        nonebot.get_driver()
+    except ValueError:
+        pass
+    else:
+        return
+
+    nonebot.init(
+        DRIVER="~fastapi+~httpx+~websockets",
+        COMMAND_START=["", "/"],
+        localstore_cache_dir=_LOCALSTORE_ROOT / "cache",
+        localstore_config_dir=_LOCALSTORE_ROOT / "config",
+        localstore_data_dir=_LOCALSTORE_ROOT / "data",
+        localstore_use_cwd=False,
+    )
+
+    driver = nonebot.get_driver()
+    driver.register_adapter(adapter=ONEBOT_V11Adapter)
+
+    nonebot.load_from_toml(file_path=str(_PYPROJECT))
+
+
+@pytest.fixture(autouse=True)
+def _fresh_config_files() -> None:
+    """每个测试前删除策略文件，保证从代码默认值重新生成。"""
+    from nonebot_plugin_localstore import get_config_file
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification.policy import (
+        _PLUGIN_NAME,
+        _POLICY_FILENAME,
+    )
+
+    get_config_file(_PLUGIN_NAME, _POLICY_FILENAME).unlink(missing_ok=True)
+
+
+def pytest_unconfigure() -> None:
+    """清理 NoneBot 驱动状态。
+
+    防止残留的 NoneBot 驱动实例对后续测试或其他进程造成干扰。
+
+    """
+    try:
+        nonebot.get_driver()
+    except ValueError:
+        return
+    nonebot._driver = None

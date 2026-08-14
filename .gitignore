@@ -1,0 +1,95 @@
+# Created by https://www.toptal.com/developers/gitignore/api/python
+# Edit at https://www.toptal.com/developers/gitignore?templates=python
+# Cleaned for ocr-fanqie-novel: NoneBot2 + uv plugin project.
+# Project does NOT use: Django, Flask, Scrapy, Sphinx, Jupyter, pyenv, pipenv,
+# PEP 582, Celery, SageMath, Spyder, Rope, mkdocs, Pyre, pytype, PDM,
+# PyInstaller. Removed their entries when re-applying the upstream template.
+#
+# IMPORTANT: Git does NOT support inline comments. Trailing text after a
+# pattern (e.g. `.venv  # comment`) is treated as part of the glob and the
+# rule becomes inert. Keep each comment on its own line.
+
+# ===== uv / build tooling =====
+.uv-cache/
+.uv-python
+uv.toml
+
+# ===== Python =====
+# Byte-compiled / optimized
+__pycache__/
+*.py[cod]
+*$py.class
+# C extensions
+*.so
+# Environments
+.env
+.env.*
+!.env.example
+!.env.prod.example
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+# Distribution / packaging artifacts
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.installed.cfg
+# Type checkers / linters used by the project
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyright/
+.ruff_cache/
+
+# ===== Test & coverage =====
+htmlcov/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+coverage.xml
+test-results/
+# nonebot-plugin-localstore pytest fixture data
+.pytest-localstore/
+
+# ===== Local runtime (nonebot-plugin-localstore) =====
+data/
+config/
+tmp/
+cache/
+
+# ===== Lockfile policy =====
+# uv.lock is tracked (single source of truth, project uses uv).
+
+# ===== IDE / Editor =====
+# JetBrains / PyCharm
+.idea/
+# VS Code — ignore user settings, keep project-level extensions and MCP
+.vscode/*
+!.vscode/extensions.json
+!.vscode/mcp.json
+*.code-workspace
+
+# ===== Tooling indexes / agent caches =====
+.codex/
+.firecrawl/
+.superpowers/
+.local/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# End of https://www.toptal.com/developers/gitignore/api/python
+
+# ===== 运行时产物（不入库）=====
+fanqie.db
+nb-run.log
+nb-run.log.err

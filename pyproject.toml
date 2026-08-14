@@ -1,0 +1,362 @@
+[project]
+name = "ocr-fanqie-novel"
+version = "0.1.0"
+description = "番茄读书群入群验证插件：新成员入群后要求发送自己发布的番茄小说书评详情页截图，OCR 识别后自动放行或通知管理员决策"
+keywords = ["nonebot2", "nonebot", "bot", "ocr", "paddleocr", "group-management"]
+readme = "README.md"
+requires-python = ">=3.13, <3.14"
+license = { text = "MIT" }
+authors = [
+    { name = "xinvxueyuan", email = "xinvxueyuan@yeah.net" },
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Plugins",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Natural Language :: Chinese (Simplified)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Chat",
+]
+dependencies = [
+    "nonebot2[fastapi,httpx,websockets]>=2.5.0",
+    "nonebot-adapter-onebot>=2.4.6",
+    "nonebot-plugin-localstore>=0.7.4",
+    "nonebot-plugin-orm[aiosqlite]>=0.8.3",
+    "aiofiles>=25.1.0",
+    "rtoml>=0.13.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/xinvxueyuan/ocr-fanqie-novel"
+Repository = "https://github.com/xinvxueyuan/ocr-fanqie-novel"
+
+[dependency-groups]
+dev = [
+    { include-group = "lint" },
+    { include-group = "test" },
+]
+lint = [
+    "ruff>=0.16.2",
+    "pyright>=1.1.411",
+]
+test = [
+    "nb-cli>=1.7.4",
+    "nonebug>=0.4.4",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=1.0.0",
+    "pytest-cov>=6.0.0",
+    "pytest-sqlalchemy>=0.3.0",
+    "respx>=0.21.0",
+]
+
+[tool.nonebot]
+plugin_dirs = ["src/plugins"]
+
+[tool.nonebot.adapters]
+nonebot-adapter-onebot = [
+    { name = "OneBot V11", module_name = "nonebot.adapters.onebot.v11" },
+]
+"@local" = []
+
+[tool.nonebot.plugins]
+nonebot-plugin-localstore = ["nonebot_plugin_localstore"]
+nonebot-plugin-orm = ["nonebot_plugin_orm"]
+"@local" = []
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.format]
+line-ending = "lf"
+preview = true
+
+[tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
+task-tags = ["TODO", "FIXME", "XXX", "HACK", "BUG", "NOTE"]
+select = [
+    "F",     # Pyflakes
+    "W",     # pycodestyle warnings
+    "E",     # pycodestyle errors
+    "I",     # isort
+    "C90",   # mccabe
+    "N",     # pep8-naming
+    "PL",    # pylint
+    "UP",    # pyupgrade
+    "YTT",   # flake8-2020
+    "ANN",   # flake8-annotations
+    "ASYNC", # flake8-async
+    "BLE",   # flake8-blind-except
+    "FBT",   # flake8-boolean-trap
+    "B",     # flake8-bugbear
+    "A",     # flake8-builtins
+    "COM",   # flake8-commas
+    "C4",    # flake8-comprehensions
+    "D",     # pydocstyle
+    "DTZ",   # flake8-datetimez
+    "T10",   # flake8-debugger
+    "ICN",   # flake8-import-conventions
+    "PIE",   # flake8-pie
+    "T20",   # flake8-print
+    "PYI",   # flake8-pyi
+    "Q",     # flake8-quotes
+    "RSE",   # flake8-raise
+    "RET",   # flake8-return
+    "SIM",   # flake8-simplify
+    "SLOT",  # flake8-slots
+    "TID",   # flake8-tidy-imports
+    "TC",    # flake8-type-checking
+    "ARG",   # flake8-unused-arguments
+    "PTH",   # flake8-use-pathlib
+    # "ERA",   # eradicate
+    "FAST",  # FastAPI
+    "PERF",  # Perflint
+    "PGH",   # pygrep-hooks
+    "FURB",  # refurb
+    "TRY",   # tryceratops
+    "RUF",   # Ruff-specific rules
+]
+ignore = [
+    "E402",    # module-import-not-at-top-of-file  # nonebot2 require() violates this
+    "B008",    # function-call-in-default-argument  # nonebot2 Depends() without Annotated violates this
+    "UP037",   # quoted-annotation
+    # "RUF001",  # ambiguous-unicode-character-string
+    # "RUF002",  # ambiguous-unicode-character-docstring
+    # "RUF003",  # ambiguous-unicode-character-comment
+    # "ANN201",  # missing-return-type-undocumented-public-function
+    "ANN202",  # missing-return-type-private-function
+    "ANN401",  # any-type
+    "COM812",  # missing-trailing-comma
+    "PLC0415", # import-outside-top-level
+    "TID252",  # prefer-absolute-imports (relative imports inside plugin package)
+    # pydocstyle (D) ignores
+    "D100",  # missing-module-docstring (modules don't need docstrings)
+    "D104",  # missing-public-class-docstring (packages don't need docstrings)
+    "D105",  # missing-magic-method-docstring (magic methods don't need docstrings)
+    "D107",  # missing-__init__-docstring (__init__ doesn't need docstrings)
+    "D203",  # one-blank-line-before-class (conflicts with Google convention)
+    "D212",  # multi-line-summary-first-line (conflicts with D213, we want D213)
+    "D400",  # ends-in-period (too strict for CJK content)
+    "D415",  # ends-in-punctuation (too strict for CJK content)
+    # missing-docstring rules: too many existing public symbols lack docstrings
+    # to retrofit at once. D rules still enforce style on EXISTING docstrings.
+    "D101",  # missing-public-class-docstring
+    "D102",  # missing-public-method-docstring
+    "D103",  # missing-public-function-docstring
+]
+allowed-confusables = [
+    "，",
+    "。",
+    "“",
+    "”",
+    "：",
+    "；",
+    "？",
+    "！",
+    "【",
+    "】",
+    "《",
+    "》",
+    "…",
+    "—",
+    "（",
+    "）",
+    "、",
+    "．",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest fixtures may not be used directly in test functions but are still required for setup
+"tests/**" = [
+    "ARG002",  # unused-argument
+    "ANN201",  # missing-return-type-undocumented-public-function (tests don't need explicit return types)
+    "PLR2004", # magic-value-comparison (tests often use magic values for assertions)
+    "E501",    # line-too-long (test assertions can be verbose)
+    "F841",    # unused-variable (fixtures may assign variables for clarity)
+    "TC002",   # typing-only-third-party-import (e.g. pytest used as @pytest.mark decorator)
+    "TC003",   # typing-only-standard-library-import (tests don't need TYPE_CHECKING optimization)
+    "TC005",   # empty-type-checking-block (test files may have empty TYPE_CHECKING blocks)
+    "TRY003",  # raise-vanilla-args: hostile test doubles raise descriptive exceptions inline
+    "ASYNC240", # pathlib path probes inside async tests
+    "D100",    # missing-module-docstring
+    "D101",    # missing-public-class-docstring
+    "D102",    # missing-public-method-docstring
+    "D103",    # missing-public-function-docstring
+]
+# nonebot2 require() must precede cross-plugin imports at module level
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/database/orm_crud/*.py" = [
+    "E402",
+    "TRY003",
+    "TC003",
+    "PLR0913", # parameter-heavy generic CRUD functions
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/database/models/*.py" = [
+    "E402",
+    "TC003",
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/hooks/handlers/*.py" = [
+    "TC002",
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/start/startup.py" = [
+    "E402",
+    "BLE001",
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/core/async_utils.py" = [
+    "TC003",  # runtime stdlib imports needed by NoneBot
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/database/toml_store/_helpers.py" = [
+    "TRY003", # raise-vanilla-args for serialization errors
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/hooks/adapters.py" = [
+    "C901",   # complex normalization logic
+    "PLR0911", # too-many-return-statements in normalization helpers
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/repositories/message_store.py" = [
+    "PLR0913", # parameter-heavy write/audit APIs
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/services/ocr/*.py" = [
+    "PLW0603",  # module-level singletons (get_ocr_client caching pattern)
+    "TRY003",   # descriptive OCR error messages passed to custom exceptions
+    "ASYNC240", # temp-file cleanup uses pathlib in async context
+    "TC001",    # TYPE_CHECKING re-exports used as public annotations
+    "TC003",    # runtime stdlib imports needed for temp-file handling
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/services/verification/rules.py" = [
+    "PLW0603",  # module-level rules cache singleton
+    "TRY003",   # descriptive rules config error messages
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/services/verification/policy.py" = [
+    "PLW0603",  # module-level policy cache singleton
+    "TRY003",   # descriptive policy config error messages
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/services/verification/session.py" = [
+    "PLW0603",  # module-level session store singleton
+    "TRY003",   # descriptive session error messages
+    "BLE001",   # timeout callback exceptions are logged, never propagated
+    "PLR0913",  # start() keyword-only identity fields
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/services/verification/actions.py" = [
+    "PLR0913",  # build_admin_notice keyword-only evidence fields
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/services/verification/flow.py" = [
+    "PLR0911",  # verification flow branches into many distinct terminal paths
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/handle/qq/adapters/onebot11/default/verification.py" = [
+    "TC001",  # real runtime annotations required for NoneBot signature resolution
+    "TC002",  # (no future annotations in handler modules, per reference project)
+    "TC003",
+    "TC004",
+    "BLE001",  # handler exceptions are logged, never propagated
+    "PLR0913", # target_user_id + bot + event identity args
+]
+"src/plugins/nonebot_plugin_ocr_fanqie_novel/handle/qq/commands/verification.py" = [
+    "TC001",  # rule/permission signatures need real runtime annotation names
+    "TC002",  # NoneBot evaluates rule function annotations against module globals
+    "TC003",
+    "TC004",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "double"
+multiline-quotes = "double"
+docstring-quotes = "double"
+
+[tool.ruff.lint.isort]
+known-first-party = ["nonebot_plugin_ocr_fanqie_novel"]
+force-sort-within-sections = true
+combine-as-imports = true
+
+[tool.pyright]
+# For Pylance/Pyright configurations, see https://microsoft.github.io/pyright/#/configuration.
+pythonVersion = "3.13"
+pythonPlatform = "All"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "strict"
+# Spec-mandated explicit report rules (error-level).
+reportMissingParameterType = "error"
+reportImplicitOverride = "error"
+# Centrally suppress project-approved patterns so CI is warning-free.
+reportImplicitStringConcatenation = "none"
+reportImportCycles = "none"
+# NoneBot2 does not expose complete generic stubs; its finish(), on_alconna(),
+# get() etc. emit "partially unknown" types that are false positives.
+reportUnknownVariableType = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownLambdaType = "none"
+reportUnknownParameterType = "none"
+reportMissingTypeArgument = "none"
+reportMissingTypeStubs = "none"
+# NoneBot plugin architecture uses decorator-based registration; reportUnusedFunction
+# reports false positives.
+reportUnusedFunction = "none"
+# Accessing framework internals (e.g. NoneBot private APIs) is intentional.
+reportPrivateUsage = "none"
+# Module-level state management is an established pattern.
+reportConstantRedefinition = "none"
+# Deprecated function usage flagged by typeshed; fix when actionable.
+reportDeprecated = "none"
+# Defensive runtime isinstance checks on typed parameters are intentional.
+reportUnnecessaryIsInstance = "none"
+include = ["src", "tests"]
+exclude = [
+    ".venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pyright",
+    "tmp",
+    "**/migrations",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+pythonpath = [".", "src"]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib --strict-markers --strict-config --cov=src/plugins/nonebot_plugin_ocr_fanqie_novel --cov-branch --cov-report=term-missing"
+filterwarnings = [
+    "error",
+    # NoneBot's ForwardRef._evaluate doesn't pass type_params (third-party)
+    "ignore:Failing to pass a value to the 'type_params' parameter:DeprecationWarning:nonebot.typing",
+    # alembic config deprecations (third-party, pending alembic update)
+    "ignore:No path_separator found in configuration:DeprecationWarning:alembic.config",
+    "ignore:The version_path_separator configuration parameter is deprecated:DeprecationWarning:alembic.config",
+    # nonebot_plugin_orm re-registers model tables when MetaData is shared across sessions (third-party)
+    "ignore:Table .* already exists within the given MetaData:sqlalchemy.exc.SAWarning:nonebot_plugin_orm",
+]
+markers = [
+    "smoke: 冒烟测试，快速验证插件加载与核心业务链路（pytest -m smoke）",
+]
+
+[tool.coverage.run]
+source = ["src/plugins/nonebot_plugin_ocr_fanqie_novel"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = ["nonebot_plugin_ocr_fanqie_novel"]
+module-root = "src/plugins"
