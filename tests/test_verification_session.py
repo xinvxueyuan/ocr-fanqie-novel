@@ -103,7 +103,7 @@ async def test_timeout_callback_fires() -> None:
 
     store.set_timeout_callback(callback)
     _start(store)
-    await store._run_timeout(("123", "10001"), 0.0)
+    await store._run_timeout(("123", "10001"), 0.0, "waiting")
 
     assert fired == [("123", "10001")]
     store.close()
@@ -121,7 +121,7 @@ async def test_timeout_does_not_fire_after_end() -> None:
     record = _start(store)
     store.end(record.group_id, record.user_id, status="approved")
 
-    await store._run_timeout(("123", "10001"), 0.0)
+    await store._run_timeout(("123", "10001"), 0.0, "waiting")
     assert fired == []
     store.close()
 
@@ -134,6 +134,118 @@ async def test_start_overwrites_previous_session() -> None:
 
     assert len(store._sessions) == 1
     assert len(store._timeout_tasks) == 1
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_await_admin_transitions_and_schedules() -> None:
+    """转入待管理员决策应更新状态并调度管理决策超时。"""
+    store = SessionStore()
+    _start(store)
+    assert len(store._timeout_tasks) == 1
+
+    updated = store.await_admin("123", "10001")
+    assert updated is not None
+    assert updated.status == "awaiting_admin"
+    assert updated.expires_at > datetime.now(UTC)
+    assert len(store._timeout_tasks) == 1
+    assert store.list_awaiting_admin() == (updated,)
+    assert store.list_awaiting_admin("999") == ()
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_await_admin_missing_session_returns_none() -> None:
+    store = SessionStore()
+    assert store.await_admin("123", "99999") is None
+
+
+@pytest.mark.asyncio
+async def test_admin_timeout_callback_fires() -> None:
+    store = SessionStore()
+    fired: list[tuple[str, str]] = []
+
+    async def callback(group_id: str, user_id: str) -> None:
+        fired.append((group_id, user_id))
+
+    store.set_admin_timeout_callback(callback)
+    _start(store)
+    store.await_admin("123", "10001")
+    await store._run_timeout(("123", "10001"), 0.0, "awaiting_admin")
+
+    assert fired == [("123", "10001")]
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_admin_timeout_does_not_fire_when_member_timeout_pending() -> None:
+    """awaiting_admin 状态不会触发成员响应超时回调。"""
+    store = SessionStore()
+    member_fired: list[tuple[str, str]] = []
+    admin_fired: list[tuple[str, str]] = []
+
+    async def member_cb(group_id: str, user_id: str) -> None:
+        member_fired.append((group_id, user_id))
+
+    async def admin_cb(group_id: str, user_id: str) -> None:
+        admin_fired.append((group_id, user_id))
+
+    store.set_timeout_callback(member_cb)
+    store.set_admin_timeout_callback(admin_cb)
+    _start(store)
+    store.await_admin("123", "10001")
+
+    await store._run_timeout(("123", "10001"), 0.0, "waiting")
+    assert member_fired == []
+    assert admin_fired == []
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_restore_reschedules_timeout() -> None:
+    """Restore 应把持久化会话恢复并重建对应超时调度。"""
+    from datetime import timedelta
+
+    store = SessionStore()
+
+    async def member_cb(group_id: str, user_id: str) -> None:
+        _ = (group_id, user_id)
+
+    async def admin_cb(group_id: str, user_id: str) -> None:
+        _ = (group_id, user_id)
+
+    store.set_timeout_callback(member_cb)
+    store.set_admin_timeout_callback(admin_cb)
+
+    now = datetime.now(UTC)
+    waiting = SessionRecord(
+        group_id="123",
+        user_id="10001",
+        bot_id="bot1",
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+        trigger_time=now - timedelta(minutes=1),
+        expires_at=now + timedelta(minutes=4),
+        status="waiting",
+    )
+    awaiting = SessionRecord(
+        group_id="123",
+        user_id="20001",
+        bot_id="bot1",
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+        trigger_time=now - timedelta(hours=1),
+        expires_at=now + timedelta(hours=15),
+        status="awaiting_admin",
+    )
+
+    store.restore(waiting)
+    store.restore(awaiting)
+    assert len(store._timeout_tasks) == 2
+    assert store.get("123", "10001").status == "waiting"  # type: ignore[union-attr]
+    assert store.get("123", "20001").status == "awaiting_admin"  # type: ignore[union-attr]
     store.close()
 
 

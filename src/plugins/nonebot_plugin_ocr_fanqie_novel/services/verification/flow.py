@@ -8,6 +8,7 @@ matcher，便于测试。
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from nonebot import logger, require
@@ -198,13 +199,11 @@ async def handle_timeout(group_id: str, user_id: str) -> None:
         )
         return
 
-    await _persist_session(store.end(group_id, user_id, status="expired"))
-    await actions.notify_admins(
+    await _await_admin_decision(
         bot,
-        group_id=int(group_id),
-        user_id=int(user_id),
-        event=None,
-        message=f"用户 {user_id} 在群 {group_id} 超时未提供截图。",
+        group_id=group_id,
+        user_id=user_id,
+        reason=f"用户 {user_id} 在群 {group_id} 超时未提供截图",
     )
 
 
@@ -229,12 +228,14 @@ async def admin_decision(
     """
     store = get_session_store()
     if keep:
-        store.end(str(group_id), str(user_id), status="approved")
+        record = store.end(str(group_id), str(user_id), status="approved")
+        await _persist_session(record)
         await actions.send_welcome(bot, group_id, user_id)
         return "已保留该成员并通过验证。"
     member = await actions.get_member_info(bot, group_id, user_id)
     kicked = await actions.kick_member(bot, group_id, user_id, member)
-    store.end(str(group_id), str(user_id), status="kicked")
+    record = store.end(str(group_id), str(user_id), status="kicked")
+    await _persist_session(record)
     if member is None:
         return "该成员已不在群聊中。"
     return "已将该成员移出群聊。" if kicked else "踢出失败，请检查机器人权限。"
@@ -297,15 +298,13 @@ async def _increment_retry(
             f"连续 {plugin_config.fanqie_max_attempts} 次识别失败，已通知管理员处理。"
         )
 
-    await _persist_session(store.end(str(group_id), str(user_id), status="failed"))
-    await actions.notify_admins(
+    await _await_admin_decision(
         bot,
-        group_id=group_id,
-        user_id=user_id,
-        event=None,
-        message=(
+        group_id=str(group_id),
+        user_id=str(user_id),
+        reason=(
             f"用户 {user_id} 在群 {group_id} 连续 "
-            f"{plugin_config.fanqie_max_attempts} 次识别失败。"
+            f"{plugin_config.fanqie_max_attempts} 次识别失败"
         ),
     )
     return f"连续 {plugin_config.fanqie_max_attempts} 次识别失败，已通知管理员处理。"
@@ -359,30 +358,150 @@ async def _handle_reject(
         )
         return "验证未通过。"
 
-    await _persist_session(
-        store.update_last_extracted(
-            str(group_id),
-            str(user_id),
-            _to_dict(evidence),
-            status="rejected",
+    await _await_admin_decision(
+        bot,
+        group_id=str(group_id),
+        user_id=str(user_id),
+        reason=(f"用户 {user_id} 在群 {group_id} 未通过验证（{reason}）"),
+        evidence=evidence,
+    )
+    return "验证未通过，已通知管理员处理。"
+
+
+async def _await_admin_decision(
+    bot: Bot,
+    *,
+    group_id: str,
+    user_id: str,
+    reason: str,
+    evidence: ReadingEvidence | None = None,
+) -> None:
+    """验证失败后转入待管理员决策状态并通知管理员。
+
+    会话保留为 ``awaiting_admin`` 并调度管理决策超时；管理员可通过
+    ``/kick`` / ``/keep`` 决策，超时则由 :func:`handle_admin_decision_timeout`
+    在群内通报并移出成员。
+
+    """
+    store = get_session_store()
+    last_extracted = _to_dict(evidence) if evidence is not None else None
+    record = store.await_admin(group_id, user_id, last_extracted=last_extracted)
+    await _persist_session(record)
+    message = (
+        actions.build_admin_notice(
+            group_id=int(group_id),
+            user_id=int(user_id),
+            reader_name=(
+                evidence.reader_name.value
+                if evidence and evidence.reader_name
+                else None
+            ),
+            book_name=(
+                evidence.book_name.value if evidence and evidence.book_name else None
+            ),
+            author=evidence.author.value if evidence and evidence.author else None,
+            rating=evidence.rating.value if evidence and evidence.rating else None,
+            publish_time=(
+                evidence.publish_time.value
+                if evidence and evidence.publish_time
+                else None
+            ),
         )
+        if evidence is not None
+        else reason
     )
     await actions.notify_admins(
         bot,
-        group_id=group_id,
-        user_id=user_id,
+        group_id=int(group_id),
+        user_id=int(user_id),
         event=None,
-        message=actions.build_admin_notice(
-            group_id=group_id,
-            user_id=user_id,
-            reader_name=evidence.reader_name.value if evidence.reader_name else None,
-            book_name=evidence.book_name.value if evidence.book_name else None,
-            author=evidence.author.value if evidence.author else None,
-            rating=evidence.rating.value if evidence.rating else None,
-            publish_time=evidence.publish_time.value if evidence.publish_time else None,
-        ),
+        message=message,
     )
-    return "验证未通过，已通知管理员处理。"
+
+
+async def handle_admin_decision_timeout(group_id: str, user_id: str) -> None:
+    """管理员决策超时：在群内通报并移出成员。
+
+    该回调由会话存储的 ``awaiting_admin`` 超时任务触发；若成员已不在群
+    则仅结束会话。
+
+    """
+    store = get_session_store()
+    record = store.get(group_id, user_id)
+    if record is None or record.status != "awaiting_admin":
+        return
+    bot_id = record.bot_id
+    if not bot_id:
+        logger.warning("会话缺少 bot_id，跳过管理决策超时处理: {}", (group_id, user_id))
+        await _persist_session(store.end(group_id, user_id, status="expired"))
+        return
+    bot = await _get_bot(bot_id)
+    if bot is None:
+        logger.warning("找不到 Bot {}，跳过管理决策超时处理", bot_id)
+        await _persist_session(store.end(group_id, user_id, status="expired"))
+        return
+
+    member = await actions.get_member_info(bot, int(group_id), int(user_id))
+    if member is None:
+        logger.info("管理决策超时：成员 {} 已不在群 {} 中，直接结束", user_id, group_id)
+        await _persist_session(store.end(group_id, user_id, status="expired"))
+        return
+
+    await actions.announce_admin_timeout(bot, int(group_id), int(user_id))
+    await actions.kick_member(bot, int(group_id), int(user_id), member)
+    await _persist_session(store.end(group_id, user_id, status="kicked"))
+    logger.info("管理决策超时：成员 {} 已从群 {} 移出", user_id, group_id)
+
+
+async def restore_pending_sessions() -> int:
+    """重启后从数据库恢复待处理会话并重建超时调度。
+
+    恢复 ``waiting``（等待成员提交截图）与 ``awaiting_admin``（等待管理员
+    决策）两类会话，确保重启不会把验证中的成员当作已通过。
+
+    Returns:
+        恢复的会话数量。
+
+    """
+    if not plugin_config.fanqie_message_store_enabled:
+        return 0
+    store = get_session_store()
+    restored = 0
+    try:
+        async with get_session() as session:
+            records = await repository.list_pending_sessions(session)
+    except Exception:  # noqa: BLE001 - 恢复失败不阻断启动
+        logger.exception("恢复待处理验证会话失败")
+        return 0
+    now = datetime.now(UTC)
+    for row in records:
+        expires_at = row.expires_at or _fallback_deadline(row.status, now)
+        record = SessionRecord(
+            group_id=row.group_id,
+            user_id=row.user_id,
+            bot_id=row.bot_id,
+            platform_id=row.platform_id,
+            adapter_id=row.adapter_id,
+            protocol_id=row.protocol_id,
+            trigger_time=row.trigger_time,
+            expires_at=expires_at,
+            retry_count=row.retry_count,
+            is_muted=row.is_muted,
+            last_extracted=row.last_extracted,
+            status=row.status,
+        )
+        store.restore(record)
+        restored += 1
+    if restored:
+        logger.info("已从数据库恢复 {} 个待处理验证会话", restored)
+    return restored
+
+
+def _fallback_deadline(status: str, now: datetime) -> datetime:
+    """按会话状态推算默认截止时间（expires_at 缺失时兜底）。"""
+    if status == "awaiting_admin":
+        return now + timedelta(seconds=plugin_config.fanqie_admin_decision_timeout)
+    return now + timedelta(seconds=plugin_config.fanqie_response_timeout)
 
 
 async def _persist_session(record: SessionRecord | None) -> None:
@@ -436,7 +555,9 @@ async def _get_bot(bot_id: str) -> Bot | None:
 
 __all__ = [
     "admin_decision",
+    "handle_admin_decision_timeout",
     "handle_submission",
     "handle_timeout",
+    "restore_pending_sessions",
     "start_verification",
 ]

@@ -601,3 +601,105 @@ async def test_kick_cmd_superuser_runs(
             {"group_id": _GROUP_ID, "message": "已将该成员移出群聊。"},
         )
         ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
+async def test_pending_list_cmd_lists_awaiting_admin(app: App) -> None:
+    """待处理列表命令应列出本群等待管理员决策的成员。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        GroupMessageEvent,
+        Message,
+        MessageSegment,
+    )
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    store = get_session_store()
+    store.start(
+        group_id=str(_GROUP_ID),
+        user_id="10001",
+        bot_id=str(_SELF_ID),
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+    store.await_admin(str(_GROUP_ID), "10001")
+    store.start(
+        group_id=str(_GROUP_ID),
+        user_id="20001",
+        bot_id=str(_SELF_ID),
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+    store.await_admin(str(_GROUP_ID), "20001")
+
+    async with app.test_matcher(cmd_module.pending_list_cmd) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupMessageEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="message",
+            message_type="group",
+            sub_type="normal",
+            message_id=1,
+            group_id=_GROUP_ID,
+            user_id=1330509996,
+            anonymous=None,
+            sender={"user_id": 1330509996, "nickname": "owner", "role": "owner"},
+            raw_message="/待处理列表",
+            message=Message([MessageSegment.text("/待处理列表")]),
+            font=0,
+        )  # type: ignore[call-arg]
+        ctx.should_call_api(
+            "send_group_msg",
+            {
+                "group_id": _GROUP_ID,
+                "message": (
+                    "等待管理员决策的成员 2 人：\n"
+                    "QQ 10001（剩余 16 小时 0 分，/keep 或 /kick）\n"
+                    "QQ 20001（剩余 16 小时 0 分，/keep 或 /kick）"
+                ),
+            },
+        )
+        ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
+async def test_pending_list_cmd_empty(app: App) -> None:
+    """无待处理成员时返回空提示。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        GroupMessageEvent,
+        Message,
+        MessageSegment,
+    )
+
+    async with app.test_matcher(cmd_module.pending_list_cmd) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupMessageEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="message",
+            message_type="group",
+            sub_type="normal",
+            message_id=1,
+            group_id=_GROUP_ID,
+            user_id=1330509996,
+            anonymous=None,
+            sender={"user_id": 1330509996, "nickname": "owner", "role": "owner"},
+            raw_message="/待处理列表",
+            message=Message([MessageSegment.text("/待处理列表")]),
+            font=0,
+        )  # type: ignore[call-arg]
+        ctx.should_call_api(
+            "send_group_msg",
+            {
+                "group_id": _GROUP_ID,
+                "message": "当前没有等待管理员处理的验证成员。",
+            },
+        )
+        ctx.receive_event(bot, event)

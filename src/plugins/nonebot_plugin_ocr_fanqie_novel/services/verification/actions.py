@@ -137,6 +137,23 @@ async def send_welcome(bot: OneBot11Bot, group_id: int, user_id: int) -> bool:
     return True
 
 
+async def announce_admin_timeout(
+    bot: OneBot11Bot,
+    group_id: int,
+    user_id: int,
+) -> bool:
+    """管理员决策超时：在群内通报该成员将被移出。"""
+    message = Message(MessageSegment.at(user_id)) + (
+        " 验证未通过且管理员超时未处理，现将其移出群聊。"
+    )
+    try:
+        await bot.send_group_msg(group_id=group_id, message=message)
+    except ActionFailed:
+        logger.warning("群内通报超时移出失败 group={} user={}", group_id, user_id)
+        return False
+    return True
+
+
 async def kick_member(
     bot: OneBot11Bot,
     group_id: int,
@@ -227,10 +244,12 @@ def _decorate_notice(message: str, group_id: int, user_id: int) -> str:
     allowed = (
         ", ".join(sorted(group.author_names)) if group and group.authors else "未配置"
     )
+    hours = max(1, plugin_config.fanqie_admin_decision_timeout // 3600)
     return (
         f"{message}\n"
         f"该群允许作者：{allowed}\n"
-        f"请在群内执行：/kick {user_id} 或 /keep {user_id}。"
+        f"请在群内执行：/kick {user_id} 或 /keep {user_id}。\n"
+        f"若 {hours} 小时内未处理，将自动在群内通报并移出该成员。"
     )
 
 
@@ -261,6 +280,7 @@ def build_admin_notice(
 __all__ = [
     "MemberInfo",
     "_is_admin",
+    "announce_admin_timeout",
     "build_admin_notice",
     "get_member_info",
     "kick_member",

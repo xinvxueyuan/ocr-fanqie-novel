@@ -67,6 +67,15 @@ reload_config_cmd = on_command(
     block=True,
 )
 
+# 待处理列表：查询本群等待管理员决策的成员。
+pending_list_cmd = on_command(
+    "待处理列表",
+    aliases={"待处理", "未处理列表"},
+    permission=SUPERUSER,
+    priority=5,
+    block=True,
+)
+
 
 __all__ = [
     "group_admin_change",
@@ -76,5 +85,6 @@ __all__ = [
     "image_submission",
     "keep_cmd",
     "kick_cmd",
+    "pending_list_cmd",
     "reload_config_cmd",
 ]

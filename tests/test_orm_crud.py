@@ -204,6 +204,34 @@ async def test_list_items_ordering(session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_pending_sessions_filters_status(session: AsyncSession) -> None:
+    """list_pending_sessions 应只返回 waiting 与 awaiting_admin。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.repositories import (
+        message_store as repo,
+    )
+
+    await create(session, VerificationSession, **_sample(user_id="30001"))
+    await create(
+        session,
+        VerificationSession,
+        **_sample(user_id="30002", status="awaiting_admin"),
+    )
+    await create(
+        session,
+        VerificationSession,
+        **_sample(user_id="30003", status="approved"),
+    )
+    await create(
+        session,
+        VerificationSession,
+        **_sample(user_id="30004", status="kicked"),
+    )
+
+    pending = await repo.list_pending_sessions(session)
+    assert {item.user_id for item in pending} == {"30001", "30002"}
+
+
+@pytest.mark.asyncio
 async def test_create_rejects_unknown_column(session: AsyncSession) -> None:
     """未知字段应抛出 ValueError。"""
     with pytest.raises(ValueError):

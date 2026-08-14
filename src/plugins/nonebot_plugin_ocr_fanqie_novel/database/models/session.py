@@ -37,7 +37,8 @@ class VerificationSession(Model):
         bot_id: 处理该会话的机器人 self_id。
         group_id: 群号。
         user_id: 被验证用户 QQ 号。
-        status: 会话状态（waiting / approved / rejected / kicked / expired / cleared）。
+        status: 会话状态（waiting / awaiting_admin / approved / rejected /
+            kicked / expired / failed / cleared）。
         retry_count: 识别失败的累计次数。
         is_muted: 该成员当前是否已被禁言。
         last_extracted: 最近一次 OCR 提取结果（书名、章节、阅读时间）。

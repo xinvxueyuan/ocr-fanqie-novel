@@ -1,6 +1,7 @@
 """OneBot V11 适配器处理器注册（参照对象项目的 selected_adapter_handle 模式）。"""
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from functools import wraps
 from typing import Any
 
@@ -25,6 +26,7 @@ from ......handle.qq.commands.verification import (
     image_submission,
     keep_cmd,
     kick_cmd,
+    pending_list_cmd,
     reload_config_cmd,
 )
 from ......services.verification import (
@@ -35,6 +37,9 @@ from ......services.verification import (
     reload_policy,
     start_verification,
 )
+
+_SECONDS_PER_HOUR = 3600
+_MINUTES_PER_HOUR = 60
 
 
 def _register[T: Callable[..., Awaitable[Any]]](
@@ -267,6 +272,35 @@ async def on_reload_config(
     )
     message = MessageSegment.at(event.user_id) + f" {summary}"
     await bot.send_group_msg(group_id=event.group_id, message=message)
+
+
+@_register(pending_list_cmd)
+async def on_admin_pending_list(
+    bot: OneBot11Bot,
+    event: GroupMessageEvent,
+) -> None:
+    """查询本群等待管理员决策的成员列表。"""
+    if not _is_admin_user(event):
+        return
+    from ......services.verification import get_session_store
+
+    records = get_session_store().list_awaiting_admin(str(event.group_id))
+    if not records:
+        reply = "当前没有等待管理员处理的验证成员。"
+    else:
+        now = datetime.now(UTC)
+        lines: list[str] = []
+        for record in sorted(records, key=lambda r: r.expires_at):
+            remaining = max(0, int((record.expires_at - now).total_seconds()))
+            hours, remainder = divmod(remaining, _SECONDS_PER_HOUR)
+            minutes = (remainder + 59) // 60
+            if minutes >= _MINUTES_PER_HOUR:
+                hours += 1
+                minutes = 0
+            left = f"{hours} 小时 {minutes} 分" if hours else f"{minutes} 分"
+            lines.append(f"QQ {record.user_id}（剩余 {left}，/keep 或 /kick）")
+        reply = f"等待管理员决策的成员 {len(records)} 人：\n" + "\n".join(lines)
+    await bot.send_group_msg(group_id=event.group_id, message=reply)
 
 
 def _extract_target_user(args: Message, event: GroupMessageEvent) -> int | None:

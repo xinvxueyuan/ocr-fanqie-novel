@@ -274,6 +274,26 @@ async def list_active_sessions(
     )
 
 
+async def list_pending_sessions(
+    session: AsyncSession | async_scoped_session[AsyncSession],
+    *,
+    limit: int = 500,
+) -> list[VerificationSession]:
+    """列出待处理的验证会话（waiting 与 awaiting_admin）。
+
+    用于重启后恢复会话状态，确保验证中的成员不会被当作已通过。
+
+    """
+    return await list_items(
+        session,
+        VerificationSession,
+        None,
+        conditions=[VerificationSession.status.in_(("waiting", "awaiting_admin"))],
+        order_by=["-trigger_time"],
+        limit=limit,
+    )
+
+
 async def cleanup_expired_sessions(
     session: AsyncSession | async_scoped_session[AsyncSession],
     *,
@@ -313,6 +333,7 @@ __all__ = [
     "VerificationSessionWrite",
     "cleanup_expired_sessions",
     "list_active_sessions",
+    "list_pending_sessions",
     "record_api_call",
     "record_event_received",
     "record_matcher_result",

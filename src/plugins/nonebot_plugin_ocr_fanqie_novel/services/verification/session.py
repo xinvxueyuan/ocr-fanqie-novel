@@ -64,11 +64,16 @@ class SessionStore:
         self._sessions: dict[_SessionKey, SessionRecord] = {}
         self._timeout_tasks: dict[_SessionKey, asyncio.Task] = {}
         self._timeout_callback: TimeoutCallback | None = None
+        self._admin_timeout_callback: TimeoutCallback | None = None
         self._closed = False
 
     def set_timeout_callback(self, callback: TimeoutCallback) -> None:
-        """注册超时回调（由编排层注入，避免循环依赖）。"""
+        """注册成员响应超时回调（由编排层注入，避免循环依赖）。"""
         self._timeout_callback = callback
+
+    def set_admin_timeout_callback(self, callback: TimeoutCallback) -> None:
+        """注册管理员决策超时回调（由编排层注入）。"""
+        self._admin_timeout_callback = callback
 
     def get(self, group_id: str, user_id: str) -> SessionRecord | None:
         """返回活跃会话记录；不存在时返回 ``None``。"""
@@ -83,6 +88,18 @@ class SessionStore:
         """返回所有 waiting 状态会话的快照。"""
         return tuple(
             record for record in self._sessions.values() if record.status == "waiting"
+        )
+
+    def list_awaiting_admin(
+        self,
+        group_id: str | None = None,
+    ) -> tuple[SessionRecord, ...]:
+        """返回待管理员决策会话的快照（可选按群过滤）。"""
+        return tuple(
+            record
+            for record in self._sessions.values()
+            if record.status == "awaiting_admin"
+            and (group_id is None or record.group_id == group_id)
         )
 
     def start(
@@ -210,13 +227,18 @@ class SessionStore:
         return self._sessions.pop(key, None)
 
     def _schedule_timeout(self, key: _SessionKey) -> None:
-        """为会话调度超时协程。"""
+        """按会话当前状态调度对应超时协程。"""
         if self._closed:
             return
         record = self._sessions[key]
+        if record.status not in ("waiting", "awaiting_admin"):
+            return  # 终态无需调度
         delay = max(0.0, (record.expires_at - datetime.now(UTC)).total_seconds())
         task_name = f"fanqie-timeout:{key[0]}:{key[1]}"
-        task = asyncio.create_task(self._run_timeout(key, delay), name=task_name)
+        task = asyncio.create_task(
+            self._run_timeout(key, delay, record.status),
+            name=task_name,
+        )
         self._timeout_tasks[key] = task
 
     def _cancel_timeout(self, key: _SessionKey) -> None:
@@ -224,22 +246,72 @@ class SessionStore:
         if task is not None and not task.done():
             task.cancel()
 
-    async def _run_timeout(self, key: _SessionKey, delay: float) -> None:
-        """等待超时并触发回调（若会话仍处于 waiting）。"""
+    async def _run_timeout(self, key: _SessionKey, delay: float, status: str) -> None:
+        """等待超时并触发对应回调（若会话仍处于该状态）。"""
         try:
             await asyncio.sleep(delay)
         except asyncio.CancelledError:
             return
         self._timeout_tasks.pop(key, None)
-        if not self.is_waiting(*key):
+        record = self._sessions.get(key)
+        if record is None or record.status != status:
             return
-        if self._timeout_callback is None:
+        if status == "waiting":
+            callback = self._timeout_callback
+        elif status == "awaiting_admin":
+            callback = self._admin_timeout_callback
+        else:
+            return
+        if callback is None:
             logger.warning("未配置超时回调，会话 {} 无法自动处理", key)
             return
         try:
-            await self._timeout_callback(*key)
+            await callback(*key)
         except Exception:
             logger.exception("处理会话超时失败: {}", key)
+
+    def await_admin(
+        self,
+        group_id: str,
+        user_id: str,
+        *,
+        last_extracted: dict | None = None,
+    ) -> SessionRecord | None:
+        """把会话转入待管理员决策状态并调度管理决策超时。
+
+        Args:
+            group_id: 群号。
+            user_id: 成员 QQ 号。
+            last_extracted: 需要保留的最近一次提取结果。
+
+        Returns:
+            更新后的会话记录；会话不存在时返回 ``None``。
+
+        """
+        key = (group_id, user_id)
+        record = self.get(group_id, user_id)
+        if record is None:
+            return None
+        self._cancel_timeout(key)
+        data = record.to_db_dict()
+        data["status"] = "awaiting_admin"
+        data["expires_at"] = datetime.now(UTC) + timedelta(
+            seconds=plugin_config.fanqie_admin_decision_timeout
+        )
+        if last_extracted is not None:
+            data["last_extracted"] = last_extracted
+        updated = SessionRecord(**data)
+        self._sessions[key] = updated
+        self._schedule_timeout(key)
+        return updated
+
+    def restore(self, record: SessionRecord) -> SessionRecord:
+        """把持久化的会话记录恢复到内存并恢复超时调度（重启恢复）。"""
+        key = (record.group_id, record.user_id)
+        self._sessions[key] = record
+        if record.status in ("waiting", "awaiting_admin"):
+            self._schedule_timeout(key)
+        return record
 
     def close(self) -> None:
         """取消所有超时任务（停机时调用）。"""

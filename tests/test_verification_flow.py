@@ -11,8 +11,10 @@ from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
     admin_decision,
     flow as flow_module,
     get_session_store,
+    handle_admin_decision_timeout,
     handle_submission,
     handle_timeout,
+    restore_pending_sessions,
     start_verification,
 )
 
@@ -282,7 +284,7 @@ async def test_handle_submission_reject_notifies_admin(
     assert "验证未通过" in reply
     record = get_session_store().get("123", "10001")
     assert record is not None
-    assert record.status == "rejected"
+    assert record.status == "awaiting_admin"
     bans = [c for c in bot.calls if c[0] == "set_group_ban"]
     assert bans == []
     privates = [c for c in bot.calls if c[0] == "send_private_msg"]
@@ -337,7 +339,7 @@ async def test_handle_submission_policy_rejects_missing_element(
     assert "验证未通过" in reply
     record = get_session_store().get("123", "10001")
     assert record is not None
-    assert record.status == "rejected"
+    assert record.status == "awaiting_admin"
 
 
 @pytest.mark.asyncio
@@ -387,14 +389,14 @@ async def test_handle_submission_policy_rejects_author(
     assert "验证未通过" in reply
     record = get_session_store().get("123", "10001")
     assert record is not None
-    assert record.status == "rejected"
+    assert record.status == "awaiting_admin"
 
 
 @pytest.mark.asyncio
 async def test_handle_timeout_notifies_and_ends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """超时应结束会话并私信管理员决策（不自动踢出）。"""
+    """超时应转入待管理员决策并私信通知（不自动踢出）。"""
     from src.plugins.nonebot_plugin_ocr_fanqie_novel.core.config import plugin_config
 
     monkeypatch.setattr(plugin_config, "fanqie_admin_ids", {90001})
@@ -418,7 +420,7 @@ async def test_handle_timeout_notifies_and_ends(
     assert "/keep" in str(privates[0][1]["message"])
     record = get_session_store().get("123", "10001")
     assert record is not None
-    assert record.status == "expired"
+    assert record.status == "awaiting_admin"
 
 
 @pytest.mark.asyncio
@@ -525,6 +527,159 @@ async def test_handle_submission_member_muted_state_synced() -> None:
     record = get_session_store().get("123", "10001")
     assert record is not None
     assert record.is_muted is True
+
+
+@pytest.mark.asyncio
+async def test_await_admin_schedules_decision_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """转入待管理员决策后应设置 16h 截止并保留会话。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.core.config import plugin_config
+
+    monkeypatch.setattr(plugin_config, "fanqie_admin_decision_timeout", 57600)
+    bot: Any = FakeBot()
+    await start_verification(bot, group_id=123, user_id=10001)
+
+    store = get_session_store()
+    store.await_admin("123", "10001")
+
+    record = store.get("123", "10001")
+    assert record is not None
+    assert record.status == "awaiting_admin"
+    assert record.expires_at is not None
+    remaining = (
+        record.expires_at
+        - __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+    ).total_seconds()
+    assert 57000 < remaining <= 57600
+    assert store.list_awaiting_admin("123") == (record,)
+
+
+@pytest.mark.asyncio
+async def test_admin_decision_timeout_announces_and_kicks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """管理决策超时应群内通报并踢出成员。"""
+    bot: Any = FakeBot()
+
+    async def fake_get_bot(bot_id: str) -> FakeBot:
+        _ = bot_id
+        return bot
+
+    monkeypatch.setattr(flow_module, "_get_bot", fake_get_bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+    get_session_store().await_admin("123", "10001")
+
+    await handle_admin_decision_timeout("123", "10001")
+
+    announces = [c for c in bot.calls if c[0] == "send_group_msg"]
+    assert any("移出群聊" in str(c[1]["message"]) for c in announces)
+    kicks = [c for c in bot.calls if c[0] == "set_group_kick"]
+    assert len(kicks) == 1
+    record = get_session_store().get("123", "10001")
+    assert record is not None
+    assert record.status == "kicked"
+
+
+@pytest.mark.asyncio
+async def test_admin_decision_timeout_member_left_no_kick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """管理决策超时时成员已退群则仅结束会话。"""
+    bot: Any = FakeBot(in_group=False)
+
+    async def fake_get_bot(bot_id: str) -> FakeBot:
+        _ = bot_id
+        return bot
+
+    monkeypatch.setattr(flow_module, "_get_bot", fake_get_bot)
+    get_session_store().start(
+        group_id="123",
+        user_id="10001",
+        bot_id="bot1",
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+    get_session_store().await_admin("123", "10001")
+
+    await handle_admin_decision_timeout("123", "10001")
+
+    kicks = [c for c in bot.calls if c[0] == "set_group_kick"]
+    assert kicks == []
+    record = get_session_store().get("123", "10001")
+    assert record is not None
+    assert record.status == "expired"
+
+
+@pytest.mark.asyncio
+async def test_restore_pending_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """重启后应恢复 waiting 与 awaiting_admin 会话并重建超时。"""
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.core.config import plugin_config
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        session as session_module,
+    )
+
+    now = datetime.now(UTC)
+    persisted: list[Any] = [
+        SimpleNamespace(
+            group_id="123",
+            user_id="10001",
+            bot_id="bot1",
+            platform_id="qq",
+            adapter_id="~onebot.v11",
+            protocol_id="default",
+            trigger_time=now - timedelta(minutes=2),
+            expires_at=now + timedelta(minutes=3),
+            retry_count=0,
+            is_muted=False,
+            last_extracted=None,
+            status="waiting",
+        ),
+        SimpleNamespace(
+            group_id="123",
+            user_id="20001",
+            bot_id="bot1",
+            platform_id="qq",
+            adapter_id="~onebot.v11",
+            protocol_id="default",
+            trigger_time=now - timedelta(hours=1),
+            expires_at=now + timedelta(hours=15),
+            retry_count=0,
+            is_muted=False,
+            last_extracted=None,
+            status="awaiting_admin",
+        ),
+    ]
+
+    async def fake_list_pending_sessions(session: Any) -> list[Any]:
+        _ = session
+        return persisted
+
+    monkeypatch.setattr(
+        flow_module.repository,
+        "list_pending_sessions",
+        fake_list_pending_sessions,
+    )
+    monkeypatch.setattr(plugin_config, "fanqie_message_store_enabled", True)
+
+    session_module._store = None
+
+    restored = await restore_pending_sessions()
+    assert restored == 2
+
+    store = get_session_store()
+    waiting = store.get("123", "10001")
+    awaiting = store.get("123", "20001")
+    assert waiting is not None and waiting.status == "waiting"
+    assert awaiting is not None and awaiting.status == "awaiting_admin"
+    assert len(store.list_waiting()) == 1
+    assert len(store.list_awaiting_admin("123")) == 1
 
 
 def _ocr_result_with_evidence() -> Any:
