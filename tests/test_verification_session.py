@@ -315,3 +315,46 @@ async def test_remove_group_clears_all_sessions() -> None:
     assert store.list_waiting() == ()
     assert len(store._timeout_tasks) == 0
     store.close()
+
+
+@pytest.mark.asyncio
+async def test_mark_retry_resets_timeout_window() -> None:
+    """失败重试应重置超时截止时间并重新调度超时任务。"""
+    store = SessionStore()
+    record = _start(store)
+    old_expires = record.expires_at
+
+    updated = store.mark_retry("123", "10001")
+    assert updated is not None
+    assert updated.retry_count == 1
+    assert updated.expires_at > old_expires  # 窗口被重置到新的完整时长
+    assert len(store._timeout_tasks) == 1  # 超时任务重新调度（无重复）
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_mark_review_increments() -> None:
+    """重审计数累加。"""
+    store = SessionStore()
+    _start(store)
+
+    updated = store.mark_review("123", "10001")
+    assert updated is not None
+    assert updated.review_count == 1
+    updated = store.mark_review("123", "10001")
+    assert updated is not None
+    assert updated.review_count == 2
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_set_review_count_writes_back() -> None:
+    """重审重开流程后写回计数。"""
+    store = SessionStore()
+    _start(store)
+    store.mark_review("123", "10001")
+
+    updated = store.set_review_count("123", "10001", 5)
+    assert updated is not None
+    assert updated.review_count == 5
+    store.close()

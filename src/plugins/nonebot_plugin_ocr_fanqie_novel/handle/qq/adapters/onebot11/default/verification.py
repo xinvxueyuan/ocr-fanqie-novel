@@ -28,6 +28,7 @@ from ......handle.qq.commands.verification import (
     kick_cmd,
     pending_list_cmd,
     reload_config_cmd,
+    review_cmd,
 )
 from ......services.verification import (
     PolicyConfigError,
@@ -35,6 +36,7 @@ from ......services.verification import (
     get_session_store,
     handle_submission,
     reload_policy,
+    review_verification,
     start_verification,
 )
 
@@ -248,6 +250,16 @@ def _is_admin_user(event: GroupMessageEvent) -> bool:
         return False
 
 
+async def _is_privileged(bot: OneBot11Bot, event: GroupMessageEvent) -> bool:
+    """命令发起者是否具备管理员权限（配置管理员或群内 admin/owner）。"""
+    if _is_admin_user(event):
+        return True
+    from ......services.verification import get_member_info
+
+    info = await get_member_info(bot, event.group_id, int(event.user_id))
+    return bool(info and info.is_admin)
+
+
 @_register(reload_config_cmd)
 async def on_reload_config(
     bot: OneBot11Bot,
@@ -301,6 +313,45 @@ async def on_admin_pending_list(
             lines.append(f"QQ {record.user_id}（剩余 {left}，/keep 或 /kick）")
         reply = f"等待管理员决策的成员 {len(records)} 人：\n" + "\n".join(lines)
     await bot.send_group_msg(group_id=event.group_id, message=reply)
+
+
+@_register(review_cmd)
+async def on_review(
+    bot: OneBot11Bot,
+    event: GroupMessageEvent,
+    args: Message = CommandArg(),
+) -> None:
+    """重审：普通成员重审自己（限次数），管理员可 @ 任意普通成员重审。
+
+    - 普通成员（非群管理/群主）发送“重审”：重审自己，消耗一次重审机会；
+    - 管理员发送“重审 @某人”：重审目标成员，不消耗次数、不受上限限制；
+    - 管理员裸发“重审”（无 @）：提示需指定目标。
+    """
+    is_admin = await _is_privileged(bot, event)
+    target_user_id = _extract_target_user(args, event)
+
+    if target_user_id is None:
+        if is_admin:
+            reply = "请 @ 要重审的成员，例如：重审 @某人"
+        else:
+            target_user_id = int(event.user_id)
+            reply = await review_verification(
+                bot,
+                group_id=event.group_id,
+                user_id=target_user_id,
+                triggered_by_admin=False,
+            )
+    elif not is_admin:
+        reply = "只有管理员可以重审其他成员，你只能重审自己。"
+    else:
+        reply = await review_verification(
+            bot,
+            group_id=event.group_id,
+            user_id=target_user_id,
+            triggered_by_admin=True,
+        )
+    message = MessageSegment.at(event.user_id) + f" {reply}"
+    await bot.send_group_msg(group_id=event.group_id, message=message)
 
 
 def _extract_target_user(args: Message, event: GroupMessageEvent) -> int | None:

@@ -43,16 +43,20 @@ group_ban = on_type(GroupBanNoticeEvent, priority=1, block=False)
 image_submission = on_message(priority=5, block=False)
 
 # FR9：管理员决策命令。
+# 注意：zhenxun 全局 COMMAND_START=[""]（裸词匹配），NoneBot2 的 on_command
+# 无 command_start 参数（透传给 on() 会 TypeError）。为使通知文案里的
+# "/kick /keep"（带斜杠）与裸词写法都能命中，把带 "/" 的写法加入 aliases：
+# COMMAND_START=[""] 下，命令名 "/keep" 恰好匹配消息 "/keep ..."。
 kick_cmd = on_command(
     "kick",
-    aliases={"踢出", "踢"},
+    aliases={"踢出", "踢", "/kick"},
     permission=SUPERUSER,
     priority=5,
     block=True,
 )
 keep_cmd = on_command(
     "keep",
-    aliases={"保留", "留"},
+    aliases={"保留", "留", "/keep"},
     permission=SUPERUSER,
     priority=5,
     block=True,
@@ -76,6 +80,15 @@ pending_list_cmd = on_command(
     block=True,
 )
 
+# 重审：普通成员重审自己（限次数），管理员可 @ 任意普通成员重审（不限次数）。
+# 不带 permission 限定——权限与次数在处理器内按发起者身份判断。
+review_cmd = on_command(
+    "重审",
+    aliases={"重新审核", "重新验证", "/重审"},
+    priority=5,
+    block=True,
+)
+
 
 __all__ = [
     "group_admin_change",
@@ -87,4 +100,5 @@ __all__ = [
     "kick_cmd",
     "pending_list_cmd",
     "reload_config_cmd",
+    "review_cmd",
 ]

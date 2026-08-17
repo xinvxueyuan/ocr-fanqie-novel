@@ -35,6 +35,7 @@ class SessionRecord:
     trigger_time: datetime
     expires_at: datetime
     retry_count: int = 0
+    review_count: int = 0
     is_muted: bool = False
     last_extracted: dict | None = None
     status: str = "waiting"
@@ -50,6 +51,7 @@ class SessionRecord:
             "user_id": self.user_id,
             "status": self.status,
             "retry_count": self.retry_count,
+            "review_count": self.review_count,
             "is_muted": self.is_muted,
             "last_extracted": self.last_extracted,
             "trigger_time": self.trigger_time,
@@ -137,12 +139,48 @@ class SessionStore:
         return record
 
     def mark_retry(self, group_id: str, user_id: str) -> SessionRecord | None:
-        """识别失败一次，重试计数 +1。"""
+        """识别失败一次，重试计数 +1 并重置超时窗口。
+
+        每次失败重试都重新计算超时截止时间（``expires_at``）并重新调度
+        超时任务：固定窗口会随失败次数被逐步吃掉，导致成员来不及完成验证
+        （超时未与重试机制绑定）。重置后成员每次失败都有完整的新窗口。
+
+        """
+        key = (group_id, user_id)
+        record = self.get(group_id, user_id)
+        if record is None:
+            return None
+        self._cancel_timeout(key)
+        data = record.to_db_dict()
+        data["retry_count"] = record.retry_count + 1
+        data["expires_at"] = datetime.now(UTC) + timedelta(
+            seconds=plugin_config.fanqie_response_timeout
+        )
+        updated = SessionRecord(**data)
+        self._sessions[key] = updated
+        self._schedule_timeout(key)
+        return updated
+
+    def mark_review(self, group_id: str, user_id: str) -> SessionRecord | None:
+        """重审计数 +1（仅普通成员自审时消耗；管理员发起的重审不计次）。"""
         record = self.get(group_id, user_id)
         if record is None:
             return None
         data = record.to_db_dict()
-        data["retry_count"] = record.retry_count + 1
+        data["review_count"] = record.review_count + 1
+        updated = SessionRecord(**data)
+        self._sessions[(group_id, user_id)] = updated
+        return updated
+
+    def set_review_count(
+        self, group_id: str, user_id: str, review_count: int
+    ) -> SessionRecord | None:
+        """设置会话的重审计数（重审重开流程后写回计数用）。"""
+        record = self.get(group_id, user_id)
+        if record is None:
+            return None
+        data = record.to_db_dict()
+        data["review_count"] = review_count
         updated = SessionRecord(**data)
         self._sessions[(group_id, user_id)] = updated
         return updated

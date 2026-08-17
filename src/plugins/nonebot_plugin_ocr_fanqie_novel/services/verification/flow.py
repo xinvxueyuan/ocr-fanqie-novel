@@ -171,6 +171,66 @@ async def handle_submission(
     return await _handle_reject(bot, group_id, user_id, evidence, reject_reason)
 
 
+async def review_verification(
+    bot: Bot,
+    *,
+    group_id: int,
+    user_id: int,
+    triggered_by_admin: bool = False,
+) -> str:
+    """管理员或群成员发起“重审”：重新开启目标成员的验证流程。
+
+    普通群成员（非群管理/群主）通过“重审”命令重审**自己**：
+    - 要求当前存在待处理会话（``waiting`` / ``awaiting_admin``）；
+    - 消耗一次重审机会，上限 ``fanqie_review_max_times``（默认 2）；
+    - 重审复用现有验证流程：重置 OCR 重试次数、重新发送引导消息、
+      重新计算超时窗口。
+    管理员（FANQIE_ADMIN_IDS 或群内 admin/owner）可对任意普通成员发起
+    重审，不消耗次数、不受上限限制。
+
+    Args:
+        bot: 当前 Bot 实例。
+        group_id: 群号。
+        user_id: 被重审的目标成员 QQ 号。
+        triggered_by_admin: 是否由管理员发起（``True`` 时不消耗次数）。
+
+    Returns:
+        面向命令发起者的反馈消息。
+
+    """
+    store = get_session_store()
+    group_key, user_key = str(group_id), str(user_id)
+
+    member = await actions.get_member_info(bot, group_id, user_id)
+    if member is None:
+        return "该成员不在群聊中，无法重审。"
+    if member.is_admin:
+        return "该成员是群管理或群主，无需参与入群验证。"
+
+    old_record = store.get(group_key, user_key)
+    if not triggered_by_admin:
+        if old_record is None or old_record.status not in (
+            "waiting",
+            "awaiting_admin",
+        ):
+            return "你当前没有待处理的验证请求，无需重审。"
+        if old_record.review_count >= plugin_config.fanqie_review_max_times:
+            return (
+                f"重审次数已达上限（{plugin_config.fanqie_review_max_times} 次），"
+                "请联系管理员处理。"
+            )
+
+    started = await start_verification(bot, group_id=group_id, user_id=user_id)
+    if started is None:
+        return "该群未启用入群验证或重审未完成，请稍后再试。"
+
+    # start 创建了新会话（retry 重置、review_count 归零）；普通成员自审
+    # 需要把旧会话的重审计数延续下来（+1），管理员重审视为全新流程。
+    if not triggered_by_admin and old_record is not None:
+        store.set_review_count(group_key, user_key, old_record.review_count + 1)
+    return "已重新发起验证，请查看新的引导消息并尽快提交截图。"
+
+
 async def handle_timeout(group_id: str, user_id: str) -> None:
     """FR7：超时未收到截图，按验证失败处理并通知管理员决策。"""
     store = get_session_store()

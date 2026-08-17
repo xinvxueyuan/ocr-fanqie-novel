@@ -22,6 +22,9 @@ class Config(BaseModel):
             失败处理并通知管理员。
         fanqie_admin_decision_timeout: 通知管理员后等待其决策的超时时间
             （秒），超时后将在群内通报并移出该成员。默认 16 小时。
+        fanqie_review_max_times: 普通群成员（非群管理/群主）通过“重审”
+            命令重新发起验证的最大次数，达到上限后需由管理员处理。
+            管理员主动发起的重审不受此限制。默认 2 次。
         fanqie_notify_admin: 验证失败时是否私信通知管理员决定通过或踢出。
         fanqie_book_name_max_len: FR4 综合判断中有效书名的最大字符数。
         fanqie_ocr_api_url: PaddleOCR 云端 API 地址（留空使用官方默认服务）。
@@ -51,6 +54,7 @@ class Config(BaseModel):
     fanqie_response_timeout: int = 300
     fanqie_max_attempts: int = 3
     fanqie_admin_decision_timeout: int = 57600  # 16 小时（秒）
+    fanqie_review_max_times: int = 2
     fanqie_notify_admin: bool = True
     fanqie_book_name_max_len: int = 100
     fanqie_ocr_api_url: str = ""

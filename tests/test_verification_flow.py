@@ -15,6 +15,7 @@ from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
     handle_submission,
     handle_timeout,
     restore_pending_sessions,
+    review_verification,
     start_verification,
 )
 
@@ -24,10 +25,13 @@ class FakeBot:
 
     self_id = "bot1"
 
-    def __init__(self, *, muted_until: int = 0, in_group: bool = True) -> None:
+    def __init__(
+        self, *, muted_until: int = 0, in_group: bool = True, role: str = "member"
+    ) -> None:
         self.calls: list[Any] = []
         self.muted_until = muted_until
         self.in_group = in_group
+        self.role = role
 
     async def send_group_msg(self, **kwargs: Any) -> None:
         self.calls.append(("send_group_msg", kwargs))
@@ -49,7 +53,7 @@ class FakeBot:
             raise ActionFailed(retcode=100, retmsg="member not found", data=None)
         return {
             "user_id": kwargs.get("user_id", 0),
-            "role": "member",
+            "role": self.role,
             "card": "",
             "nickname": "某用户",
             "shut_up_timestamp": self.muted_until,
@@ -783,6 +787,96 @@ def _ocr_result_other_review() -> Any:
             )
         ],
     )
+
+
+# ---- 重审（review_verification） ----
+
+@pytest.mark.asyncio
+async def test_review_self_without_session_rejected() -> None:
+    """普通成员无待处理会话时重审被拒绝。"""
+    bot: Any = FakeBot()
+    reply = await review_verification(
+        bot, group_id=123, user_id=10001, triggered_by_admin=False
+    )
+    assert "没有待处理" in reply
+    assert get_session_store().get("123", "10001") is None
+
+
+@pytest.mark.asyncio
+async def test_review_self_restarts_flow_and_consumes_quota() -> None:
+    """普通成员重审自己：重开流程、重试清零、重审计数 +1。"""
+    bot: Any = FakeBot()
+    await start_verification(bot, group_id=123, user_id=10001)
+    store = get_session_store()
+    store.mark_retry("123", "10001")  # 模拟已失败过一次
+
+    reply = await review_verification(
+        bot, group_id=123, user_id=10001, triggered_by_admin=False
+    )
+    assert "重新发起验证" in reply
+    record = store.get("123", "10001")
+    assert record is not None
+    assert record.retry_count == 0  # 重审重置 OCR 重试
+    assert record.review_count == 1  # 消耗一次重审机会
+
+
+@pytest.mark.asyncio
+async def test_review_self_limited_by_max_times(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """普通成员重审次数达上限后被拒绝。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.core.config import plugin_config
+
+    monkeypatch.setattr(plugin_config, "fanqie_review_max_times", 2)
+    bot: Any = FakeBot()
+    await start_verification(bot, group_id=123, user_id=10001)
+    store = get_session_store()
+
+    assert "重新发起验证" in await review_verification(
+        bot, group_id=123, user_id=10001, triggered_by_admin=False
+    )
+    assert "重新发起验证" in await review_verification(
+        bot, group_id=123, user_id=10001, triggered_by_admin=False
+    )
+    reply = await review_verification(
+        bot, group_id=123, user_id=10001, triggered_by_admin=False
+    )
+    assert "上限" in reply
+    record = store.get("123", "10001")
+    assert record is not None and record.review_count == 2
+
+
+@pytest.mark.asyncio
+async def test_review_admin_unlimited_and_opens_flow() -> None:
+    """管理员重审：无需待处理会话即可重开验证，且不消耗次数。"""
+    bot: Any = FakeBot()
+    reply = await review_verification(
+        bot, group_id=123, user_id=10001, triggered_by_admin=True
+    )
+    assert "重新发起验证" in reply
+    record = get_session_store().get("123", "10001")
+    assert record is not None and record.status == "waiting"
+    assert record.review_count == 0  # 管理员重审不计次
+
+
+@pytest.mark.asyncio
+async def test_review_rejects_admin_target() -> None:
+    """目标是群管理/群主时拒绝重审。"""
+    bot: Any = FakeBot(role="admin")
+    reply = await review_verification(
+        bot, group_id=123, user_id=10001, triggered_by_admin=True
+    )
+    assert "管理" in reply
+
+
+@pytest.mark.asyncio
+async def test_review_rejects_missing_member() -> None:
+    """目标不在群聊时拒绝重审。"""
+    bot: Any = FakeBot(in_group=False)
+    reply = await review_verification(
+        bot, group_id=123, user_id=10001, triggered_by_admin=True
+    )
+    assert "不在群" in reply
 
 
 def _box(y: int) -> list[list[int]]:

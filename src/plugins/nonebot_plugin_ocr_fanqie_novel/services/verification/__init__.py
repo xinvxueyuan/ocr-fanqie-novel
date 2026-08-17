@@ -25,6 +25,7 @@ from .flow import (
     handle_submission,
     handle_timeout,
     restore_pending_sessions,
+    review_verification,
     start_verification,
 )
 from .judgment import Judgment, judge_evidence
@@ -71,6 +72,7 @@ __all__ = [
     "notify_admins",
     "reload_policy",
     "restore_pending_sessions",
+    "review_verification",
     "send_guide",
     "send_welcome",
     "start_verification",
