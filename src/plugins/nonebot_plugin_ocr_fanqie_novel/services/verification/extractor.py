@@ -42,6 +42,12 @@ _TIME_MAX_LEN = 12
 # 书名最大长度。
 _BOOK_MAX_LEN = 60
 
+# 回退匹配（无冒号书名）时，书名行与作者行的最大垂直间距。
+_BOOK_AUTHOR_MAX_GAP = 120
+
+# 回退匹配（无冒号书名）时，书名候选的最短长度。
+_MIN_BOOK_LEN = 2
+
 # 作者名候选的最大长度。
 _AUTHOR_MAX_LEN = 16
 
@@ -62,11 +68,17 @@ _READ_DURATION_RE = re.compile(r"阅读.{0,12}?(?:小时|分钟|天).{0,6}点评
 _BOOK_TITLE_RE = re.compile(r"^[^：\n]{1,30}：[^：\n]{1,40}$")
 
 
-def extract_reading_evidence(result: OCRResult) -> ReadingEvidence:
+def extract_reading_evidence(
+    result: OCRResult,
+    *,
+    known_books: frozenset[str] | None = None,
+) -> ReadingEvidence:
     """从书评详情页 OCR 识别结果中提取阅读证据。
 
     Args:
         result: OCR 服务层返回的规范化识别结果。
+        known_books: 群策略中配置的全部白名单书名（可选）。提供时，
+            无冒号书名的回退匹配会优先采用与白名单精确一致的行。
 
     Returns:
         包含读者名、发布日期、评分、书名、作者等字段的阅读证据。
@@ -81,7 +93,7 @@ def extract_reading_evidence(result: OCRResult) -> ReadingEvidence:
     publish_field, publish_days = _extract_publish_time(lines, self_marker_line)
     rating_field = _extract_rating(lines)
     duration_field = _extract_read_duration(lines)
-    book_field = _extract_book_title(lines)
+    book_field = _extract_book_title(lines, known_books=known_books)
     author_field = _extract_author(lines, book_field)
     review_field = _extract_review_text(lines, book_field)
 
@@ -279,8 +291,17 @@ def _extract_read_duration(lines: list[OCRTextLine]) -> ExtractedField | None:
     return None
 
 
-def _extract_book_title(lines: list[OCRTextLine]) -> ExtractedField | None:
-    """提取书名（含全角冒号的主副标题行，如 ``综漫：吉他雇佣兵无法找到归宿？``）。"""
+def _extract_book_title(
+    lines: list[OCRTextLine],
+    *,
+    known_books: frozenset[str] | None = None,
+) -> ExtractedField | None:
+    """提取书名。
+
+    优先匹配含全角冒号的主副标题行（如 ``综漫：吉他雇佣兵无法找到归宿？``）；
+    未命中时回退到无冒号书名匹配（见 :func:`_extract_book_title_fallback`）。
+
+    """
     for line in lines:
         text = line.text.strip()
         if _BOOK_TITLE_RE.match(text) and len(text) <= _BOOK_MAX_LEN:
@@ -289,7 +310,87 @@ def _extract_book_title(lines: list[OCRTextLine]) -> ExtractedField | None:
                 source_text=line.text,
                 confidence=line.confidence,
             )
-    return None
+    return _extract_book_title_fallback(lines, known_books=known_books)
+
+
+def _extract_book_title_fallback(
+    lines: list[OCRTextLine],
+    *,
+    known_books: frozenset[str] | None = None,
+) -> ExtractedField | None:
+    """回退提取无冒号书名（如 ``乐队少女不能啵经纪人嘴``）。
+
+    利用「书评正文 → 书名 → 作者」的页面垂直结构：作者候选行上方紧邻、
+    且间距在 ``_BOOK_AUTHOR_MAX_GAP`` 内的非界面短文本行视为书名候选。
+
+    - ``known_books`` 提供时做**双向确认**：书名候选必须与白名单书名
+      精确一致才接受（最稳，宁缺毋滥）；
+    - ``known_books`` 未提供时接受距作者行最近的候选行。
+
+    Args:
+        lines: OCR 文本行列表。
+        known_books: 群策略中配置的全部白名单书名（可选）。
+
+    Returns:
+        书名提取字段；无法可靠提取时为 ``None``。
+
+    """
+    positioned = [(line, y) for line in lines if (y := _y_center(line)) is not None]
+    candidates: list[tuple[OCRTextLine, int]] = []
+    for author_line, author_y in positioned:
+        if not _is_author_candidate(author_line.text):
+            continue
+        for line, y in positioned:
+            gap = author_y - y
+            if not 0 < gap <= _BOOK_AUTHOR_MAX_GAP:
+                continue
+            text = line.text.strip()
+            if not _is_fallback_book_candidate(text):
+                continue
+            candidates.append((line, gap))
+
+    if not candidates:
+        return None
+
+    if known_books:
+        for line, _gap in sorted(candidates, key=lambda item: item[1]):
+            if line.text.strip() in known_books:
+                return ExtractedField(
+                    value=line.text.strip(),
+                    source_text=line.text,
+                    confidence=line.confidence,
+                )
+        # 白名单提供了但无精确命中：不冒险放行，交由管理员审核。
+        return None
+
+    best, _gap = min(candidates, key=lambda item: item[1])
+    return ExtractedField(
+        value=best.text.strip(),
+        source_text=best.text,
+        confidence=best.confidence,
+    )
+
+
+def _is_fallback_book_candidate(text: str) -> bool:
+    """是否为无冒号书名的候选行。
+
+    要求：非界面元素/时间/评分/时长，且**必须含中文字符**（本群白名单
+    书名均为中文；纯字母/数字/符号行如状态栏 ``GG50``、``KB/s`` 直接排除）。
+
+    """
+    stripped = text.strip()
+    valid_length = _MIN_BOOK_LEN <= len(stripped) <= _BOOK_MAX_LEN
+    is_ui_element = (
+        stripped in _IDENTITY_MARKERS
+        or stripped in (_PAGE_TITLE, _SELF_MARKER)
+        or bool(_RELATIVE_TIME_RE.search(stripped))
+        or bool(_DATE_MMDD_RE.search(stripped))
+        or bool(_RATING_RE.match(stripped))
+        or bool(_READ_DURATION_RE.search(stripped))
+    )
+    # 必须含中文字符，排除纯数字/字母/符号/表情（状态栏、界面元素等）。
+    has_cjk = any("\u4e00" <= ch <= "\u9fff" for ch in stripped)
+    return valid_length and not is_ui_element and has_cjk
 
 
 def _extract_author(

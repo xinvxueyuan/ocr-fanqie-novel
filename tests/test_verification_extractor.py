@@ -194,3 +194,71 @@ def test_reader_name_excludes_ui_elements() -> None:
     )
     # 「我」徽章区域（±120px）内没有读者名候选，应回退或为 None
     assert evidence.is_self_review is True
+
+
+def _no_colon_layout() -> list[OCRTextLine]:
+    """无冒号书名的书评详情页（Image_1787132023465_185，vivo 套件实拍）。"""
+    return [
+        _line("17:29", 50),
+        _line("GG50", 43),
+        _line("书评详情", 200),
+        _line("Sakana~~", 407),
+        _line("我", 403),
+        _line("刚刚", 497),
+        _line("阅读4小时后点评", 633),
+        _line("劲呀，我要看的就是这个", 723),
+        _line("乐队少女不能啵经纪人嘴", 957),
+        _line("百舸川掮客", 1037),
+        _line("添加追评", 1243),
+        _line("全部评论", 1450),
+        _line("发表评论...", 3013),
+    ]
+
+
+def test_no_colon_book_title_with_whitelist() -> None:
+    """无冒号书名 + 白名单双向确认：应提取书名与作者并判定充分。"""
+    known_books = frozenset({
+        "综漫经纪人先生不死于乐队修罗场",
+        "乐队少女神人多，急需棍棒教育",
+        "乐队少女不能啵经纪人嘴",
+        "综漫：吉他雇佣兵无法找到归宿？",
+        "大少女乐队时代的传奇经纪人",
+        "乐队少女攻略日志",
+        "能别撕剧本了吗？这样显得我很呆",
+    })
+    evidence = extract_reading_evidence(
+        _result(_no_colon_layout()),
+        known_books=known_books,
+    )
+
+    assert evidence.is_self_review is True
+    assert evidence.book_name is not None
+    assert evidence.book_name.value == "乐队少女不能啵经纪人嘴"
+    assert evidence.author is not None
+    assert evidence.author.value == "百舸川掮客"
+    assert evidence.is_sufficient is True
+
+
+def test_no_colon_book_title_without_whitelist() -> None:
+    """无白名单时，无冒号书名回退应通过坐标（作者行上方紧邻）提取。"""
+    evidence = extract_reading_evidence(_result(_no_colon_layout()))
+
+    assert evidence.is_self_review is True
+    assert evidence.book_name is not None
+    assert evidence.book_name.value == "乐队少女不能啵经纪人嘴"
+    assert evidence.author is not None
+    assert evidence.author.value == "百舸川掮客"
+    assert evidence.is_sufficient is True
+
+
+def test_no_colon_book_title_whitelist_miss_is_rejected() -> None:
+    """白名单提供但无精确命中：宁缺毋滥，不冒险提取（交由管理员审核）。"""
+    known_books = frozenset({"完全无关的其它书名"})
+    evidence = extract_reading_evidence(
+        _result(_no_colon_layout()),
+        known_books=known_books,
+    )
+
+    assert evidence.book_name is None
+    assert evidence.author is None
+    assert evidence.is_sufficient is False

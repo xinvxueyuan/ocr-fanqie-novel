@@ -48,6 +48,19 @@ def _to_dict(evidence: ReadingEvidence) -> dict:
     }
 
 
+def _group_known_books(group_id: int) -> frozenset[str]:
+    """返回该群放行策略中配置的全部白名单书名（无节点时为空集合）。
+
+    供提取器的无冒号书名回退匹配做双向确认：识别出的书名候选必须与
+    白名单精确一致才接受，避免误把界面元素当书名。
+
+    """
+    group = policy.get_policy().group_policy(group_id)
+    if group is None:
+        return frozenset()
+    return frozenset(book for author in group.authors for book in author.books)
+
+
 async def start_verification(
     bot: Bot,
     *,
@@ -147,7 +160,10 @@ async def handle_submission(
         logger.warning("OCR 识别失败 group={} user={}: {}", group_id, user_id, exc)
         return await _handle_ocr_failure(bot, group_id, user_id)
 
-    evidence = extractor.extract_reading_evidence(result)
+    evidence = extractor.extract_reading_evidence(
+        result,
+        known_books=_group_known_books(group_id),
+    )
     await _persist_last_extracted(record, evidence)
 
     if not evidence.is_sufficient:
