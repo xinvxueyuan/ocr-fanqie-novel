@@ -764,3 +764,35 @@ async def test_approve_cmd_superuser_direct_approve(app: App) -> None:
             },
         )
         ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
+async def test_private_submission_silent_without_waiting(app: App) -> None:
+    """用户无待验证会话时，私聊发图应静默，不发送任何回复（不干扰其它功能）。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        Message as OneBot11Message,
+        MessageSegment as OneBot11MessageSegment,
+        PrivateMessageEvent,
+    )
+
+    async with app.test_matcher(cmd_module.private_image_submission) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = PrivateMessageEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="message",
+            message_type="private",
+            sub_type="friend",
+            message_id=7,
+            user_id=_USER_ID,
+            anonymous=None,
+            sender={"user_id": _USER_ID, "nickname": "某用户"},
+            raw_message="[图片]",
+            message=OneBot11Message([
+                OneBot11MessageSegment.image("https://example.com/img.png")
+            ]),
+            font=0,
+        )  # type: ignore[call-arg]
+        # 无待验证会话：expect none——不应有任何 send_private_msg 调用
+        ctx.receive_event(bot, event)

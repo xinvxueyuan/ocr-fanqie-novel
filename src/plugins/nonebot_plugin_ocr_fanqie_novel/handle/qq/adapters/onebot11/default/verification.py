@@ -204,11 +204,17 @@ async def on_private_image_submission(
 ) -> None:
     """私聊验证：处理用户私聊机器人的待验证群截图。
 
+    仅在该用户**确实存在待验证（waiting）会话**时才介入；否则静默返回，
+    不回复任何消息，避免干扰用户与其他插件的正常互动。
+
     仅响应带图片的私聊消息；纯文本（如选群命令）交给 verify_cmd 处理。
     """
     from ......handle.qq.commands.verification import _contains_image
 
     if not _contains_image(event):
+        return
+    store = get_session_store()
+    if not store.list_waiting_by_user(str(event.user_id)):
         return
     reply = await handle_private_submission(
         bot,
