@@ -14,6 +14,9 @@ from nonebot.adapters.onebot.v11 import (
     GroupIncreaseNoticeEvent,
     GroupMessageEvent,
 )
+from nonebot.adapters.onebot.v11.event import (
+    PrivateMessageEvent as OneBot11PrivateMessageEvent,
+)
 from nonebot.adapters.onebot.v11.message import Message, MessageSegment
 from nonebot.matcher import Matcher
 from nonebot.params import CommandArg
@@ -28,13 +31,16 @@ from ......handle.qq.commands.verification import (
     keep_cmd,
     kick_cmd,
     pending_list_cmd,
+    private_image_submission,
     reload_config_cmd,
     review_cmd,
+    verify_cmd,
 )
 from ......services.verification import (
     PolicyConfigError,
     admin_decision,
     get_session_store,
+    handle_private_submission,
     handle_submission,
     reload_policy,
     review_verification,
@@ -189,6 +195,64 @@ async def on_image_submission(
     )
     message = MessageSegment.at(event.user_id) + f" {reply}"
     await bot.send_group_msg(group_id=event.group_id, message=message)
+
+
+@_register(private_image_submission)
+async def on_private_image_submission(
+    bot: OneBot11Bot,
+    event: OneBot11PrivateMessageEvent,
+) -> None:
+    """私聊验证：处理用户私聊机器人的待验证群截图。
+
+    仅响应带图片的私聊消息；纯文本（如选群命令）交给 verify_cmd 处理。
+    """
+    from ......handle.qq.commands.verification import _contains_image
+
+    if not _contains_image(event):
+        return
+    reply = await handle_private_submission(
+        bot,
+        user_id=int(event.user_id),
+        image_url=_image_url(event),
+    )
+    await bot.send_private_msg(user_id=int(event.user_id), message=reply)
+
+
+@_register(verify_cmd)
+async def on_verify_select(
+    bot: OneBot11Bot,
+    event: OneBot11PrivateMessageEvent,
+    args: Message = CommandArg(),
+) -> None:
+    """私聊选群：多群待验证时用户用「验证 <群号>」指定目标群。"""
+    text = args.extract_plain_text().strip()
+    if not text:
+        await bot.send_private_msg(
+            user_id=int(event.user_id),
+            message="请提供群号，例如：验证 123456",
+        )
+        return
+    try:
+        group_id = int(text)
+    except ValueError:
+        await bot.send_private_msg(
+            user_id=int(event.user_id),
+            message="群号无效，请提供数字群号，例如：验证 123456",
+        )
+        return
+    store = get_session_store()
+    waiting = store.list_waiting_by_user(str(event.user_id))
+    if not any(r.group_id == str(group_id) for r in waiting):
+        await bot.send_private_msg(
+            user_id=int(event.user_id),
+            message=f"群 {group_id} 不在你当前待验证的群列表中。",
+        )
+        return
+    store.set_private_target(str(event.user_id), str(group_id))
+    await bot.send_private_msg(
+        user_id=int(event.user_id),
+        message=f"已选择在群 {group_id} 验证，请发送书评详情页截图。",
+    )
 
 
 @_register(kick_cmd)

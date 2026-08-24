@@ -192,6 +192,59 @@ async def handle_submission(
     return await _handle_reject(bot, group_id, user_id, evidence, reject_reason)
 
 
+async def handle_private_submission(
+    bot: Bot,
+    *,
+    user_id: int,
+    image_url: str | None,
+) -> str:
+    """私聊验证入口：按账号处理新成员提交的阅读截图。
+
+    私聊消息不携带群号，因此先按账号查出该用户的全部待验证等待群：
+
+    - 无 waiting 会话：提示当前没有待验证请求；
+    - 恰好一个：直接对该群验证；
+    - 多个：若已通过私聊选定目标群则验证该群，否则返回群列表供选择。
+
+    群选择状态由会话存储维护（``set_private_target`` / ``get_private_target``）。
+
+    Args:
+        bot: 当前 Bot 实例。
+        user_id: 成员 QQ 号。
+        image_url: 图片 URL（无可用 URL 时视为下载失败）。
+
+    Returns:
+        面向用户的反馈消息。
+
+    """
+    store = get_session_store()
+    waiting = store.list_waiting_by_user(str(user_id))
+    if not waiting:
+        return "你当前没有待验证的群聊请求。"
+    if len(waiting) == 1:
+        record = waiting[0]
+        return await handle_submission(
+            bot,
+            group_id=int(record.group_id),
+            user_id=user_id,
+            image_url=image_url,
+        )
+    # 多个待验证群：先看用户是否已选定目标群。
+    target = store.get_private_target(str(user_id))
+    if target is not None and any(r.group_id == target for r in waiting):
+        return await handle_submission(
+            bot,
+            group_id=int(target),
+            user_id=user_id,
+            image_url=image_url,
+        )
+    groups = "、".join(sorted(r.group_id for r in waiting))
+    return (
+        f"你当前在 {len(waiting)} 个群等待验证：{groups}。"
+        "请回复「验证 群号」指定要在哪个群验证（如：验证 123456）。"
+    )
+
+
 async def review_verification(
     bot: Bot,
     *,
@@ -789,6 +842,7 @@ async def _get_bot(bot_id: str) -> Bot | None:
 __all__ = [
     "admin_decision",
     "handle_admin_decision_timeout",
+    "handle_private_submission",
     "handle_reminder",
     "handle_submission",
     "handle_timeout",

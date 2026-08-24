@@ -1107,5 +1107,125 @@ async def test_flow_records_review_event(
     assert "verify.review" in recorded
 
 
+@pytest.mark.asyncio
+async def test_private_submission_single_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """私聊验证：恰有一个待验证群时直接验证。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        handle_private_submission,
+    )
+
+    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
+        return _ocr_result_with_evidence()
+
+    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    bot: Any = FakeBot()
+    await start_verification(bot, group_id=123, user_id=10001)
+
+    reply = await handle_private_submission(
+        bot, user_id=10001, image_url="https://example.com/p.png"
+    )
+    assert "验证通过" in reply
+    record = get_session_store().get("123", "10001")
+    assert record is not None and record.status == "approved"
+
+
+@pytest.mark.asyncio
+async def test_private_submission_no_waiting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """私聊验证：无待验证会话时提示。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        handle_private_submission,
+    )
+
+    monkeypatch.setattr(
+        flow_module, "recognize_image_url", lambda _u: _ocr_result_with_evidence()
+    )
+    bot: Any = FakeBot()
+    reply = await handle_private_submission(
+        bot, user_id=10001, image_url="https://example.com/p.png"
+    )
+    assert "没有待验证" in reply
+
+
+@pytest.mark.asyncio
+async def test_private_submission_multi_group_asks_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """私聊验证：多群待验证且未选群时返回群列表供选择。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        handle_private_submission,
+    )
+
+    monkeypatch.setattr(
+        flow_module, "recognize_image_url", lambda _u: _ocr_result_with_evidence()
+    )
+    store = get_session_store()
+    store.start(
+        group_id="123",
+        user_id="10001",
+        bot_id="bot1",
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+    store.start(
+        group_id="456",
+        user_id="10001",
+        bot_id="bot1",
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+
+    reply = await handle_private_submission(
+        FakeBot(), user_id=10001, image_url="https://example.com/p.png"
+    )
+    assert "2 个群等待验证" in reply
+    assert "123" in reply and "456" in reply
+
+
+@pytest.mark.asyncio
+async def test_private_submission_multi_group_with_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """私聊验证：多群待验证且已选目标群时验证选定群。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        handle_private_submission,
+    )
+
+    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
+        return _ocr_result_with_evidence()
+
+    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    store = get_session_store()
+    store.start(
+        group_id="123",
+        user_id="10001",
+        bot_id="bot1",
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+    store.start(
+        group_id="456",
+        user_id="10001",
+        bot_id="bot1",
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+    store.set_private_target("10001", "456")
+
+    reply = await handle_private_submission(
+        FakeBot(), user_id=10001, image_url="https://example.com/p.png"
+    )
+    assert "验证通过" in reply
+    assert store.get("123", "10001").status == "waiting"  # type: ignore[union-attr]
+    assert store.get("456", "10001").status == "approved"  # type: ignore[union-attr]
+
+
 def _box(y: int) -> list[list[int]]:
     return [[0, y], [100, y], [100, y + 20], [0, y + 20]]

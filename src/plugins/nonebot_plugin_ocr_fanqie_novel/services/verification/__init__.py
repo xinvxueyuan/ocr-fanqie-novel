@@ -24,6 +24,7 @@ from .extractor import extract_reading_evidence
 from .flow import (
     admin_decision,
     handle_admin_decision_timeout,
+    handle_private_submission,
     handle_reminder,
     handle_submission,
     handle_timeout,
@@ -69,6 +70,7 @@ __all__ = [
     "get_policy",
     "get_session_store",
     "handle_admin_decision_timeout",
+    "handle_private_submission",
     "handle_reminder",
     "handle_submission",
     "handle_timeout",

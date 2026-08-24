@@ -73,6 +73,8 @@ class SessionStore:
         self._admin_timeout_callback: TimeoutCallback | None = None
         self._reminder_callback: ReminderCallback | None = None
         self._closed = False
+        # 私聊验证：账号 → 已选目标群（多群待验证时记录用户的选定群）。
+        self._private_targets: dict[str, str] = {}
 
     def set_timeout_callback(self, callback: TimeoutCallback) -> None:
         """注册成员响应超时回调（由编排层注入，避免循环依赖）。"""
@@ -100,6 +102,31 @@ class SessionStore:
         return tuple(
             record for record in self._sessions.values() if record.status == "waiting"
         )
+
+    def list_waiting_by_user(self, user_id: str) -> tuple[SessionRecord, ...]:
+        """返回某用户在全部群中的 waiting 会话（私聊验证查群用）。
+
+        私聊消息没有群号，验证前先按账号找出该用户所有待验证群；
+        恰好一个时直接验证，多个时列出群号供其选择。
+
+        """
+        return tuple(
+            record
+            for record in self._sessions.values()
+            if record.status == "waiting" and record.user_id == user_id
+        )
+
+    def set_private_target(self, user_id: str, group_id: str) -> None:
+        """记录某用户私聊验证时选定的目标群。"""
+        self._private_targets[user_id] = group_id
+
+    def get_private_target(self, user_id: str) -> str | None:
+        """返回某用户私聊验证时选定的目标群。"""
+        return self._private_targets.get(user_id)
+
+    def clear_private_target(self, user_id: str) -> None:
+        """清除某用户的私聊验证目标群选择。"""
+        self._private_targets.pop(user_id, None)
 
     def list_awaiting_admin(
         self,

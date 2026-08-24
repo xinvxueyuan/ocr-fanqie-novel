@@ -471,3 +471,30 @@ async def test_reminder_tasks_cancelled_on_end() -> None:
     store.end("123", "10001", status="approved")
     assert ("123", "10001") not in store._reminder_tasks
     store.close()
+
+
+@pytest.mark.asyncio
+async def test_list_waiting_by_user_filters() -> None:
+    """按账号列出某用户所有待验证群。"""
+    store = SessionStore()
+    _start(store, user="10001")
+    _start(store, user="10002")
+
+    rows = store.list_waiting_by_user("10001")
+    assert len(rows) == 1
+    assert rows[0].user_id == "10001"
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_private_target_get_set_clear() -> None:
+    """私聊验证目标群选择状态的存取与清除。"""
+    store = SessionStore()
+    assert store.get_private_target("10001") is None
+
+    store.set_private_target("10001", "456")
+    assert store.get_private_target("10001") == "456"
+
+    store.clear_private_target("10001")
+    assert store.get_private_target("10001") is None
+    store.close()

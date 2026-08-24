@@ -6,7 +6,7 @@ from nonebot.adapters.onebot.v11 import (
     GroupBanNoticeEvent,
     GroupDecreaseNoticeEvent,
 )
-from nonebot.adapters.onebot.v11.event import GroupMessageEvent
+from nonebot.adapters.onebot.v11.event import GroupMessageEvent, PrivateMessageEvent
 from nonebot.permission import SUPERUSER
 
 from ....services.verification import get_session_store
@@ -41,6 +41,22 @@ group_ban = on_type(GroupBanNoticeEvent, priority=1, block=False)
 # 注意：不使用自定义 Rule（避免 NoneBot 依赖注入对 DependencyCache 的
 # TypeAdapter 构建问题），改为在处理器内自行判断。
 image_submission = on_message(priority=5, block=False)
+
+# 私聊验证：处理用户私聊机器人的待验证群截图。
+# onebot.v11 私聊事件；processor 内按是否带图分流。
+private_image_submission = on_type(
+    PrivateMessageEvent,
+    priority=5,
+    block=False,
+)
+
+# 私聊选群：多群待验证时，用户用「验证 <群号>」指定目标群。
+verify_cmd = on_command(
+    "验证",
+    aliases={"/验证", "选择群", "切换群"},
+    priority=5,
+    block=True,
+)
 
 # FR9：管理员决策命令。
 # 注意：zhenxun 全局 COMMAND_START=[""]（裸词匹配），NoneBot2 的 on_command
@@ -110,6 +126,8 @@ __all__ = [
     "keep_cmd",
     "kick_cmd",
     "pending_list_cmd",
+    "private_image_submission",
     "reload_config_cmd",
     "review_cmd",
+    "verify_cmd",
 ]

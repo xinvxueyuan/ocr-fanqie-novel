@@ -117,6 +117,7 @@ async def send_guide(bot: OneBot11Bot, group_id: int, user_id: int) -> bool:
     message = Message(MessageSegment.at(user_id)) + (
         f" {plugin_config.fanqie_welcome_message} "
         f"请在 {timeout_minutes} 分钟内发送，超时后将由管理员人工处理。"
+        "也可以私聊我发送截图完成验证。"
     )
     try:
         await bot.send_group_msg(group_id=group_id, message=message)
