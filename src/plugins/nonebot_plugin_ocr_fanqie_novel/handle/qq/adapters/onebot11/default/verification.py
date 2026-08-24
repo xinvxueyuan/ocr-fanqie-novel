@@ -19,6 +19,7 @@ from nonebot.matcher import Matcher
 from nonebot.params import CommandArg
 
 from ......handle.qq.commands.verification import (
+    approve_cmd,
     group_admin_change,
     group_ban,
     group_decrease,
@@ -228,6 +229,31 @@ async def on_admin_keep(
     if target_user_id is None:
         hint = MessageSegment.at(event.user_id) + (
             " 请提供成员 QQ 号，例如：/keep 123456"
+        )
+        await bot.send_group_msg(group_id=event.group_id, message=hint)
+        return
+    reply = await admin_decision(
+        bot,
+        group_id=event.group_id,
+        user_id=target_user_id,
+        keep=True,
+    )
+    await bot.send_group_msg(group_id=event.group_id, message=reply)
+
+
+@_register(approve_cmd)
+async def on_admin_approve(
+    bot: OneBot11Bot,
+    event: GroupMessageEvent,
+    args: Message = CommandArg(),
+) -> None:
+    """管理员“插入直接批准”：对仍在验证流程中的新成员直接放行。"""
+    if not _is_admin_user(event):
+        return
+    target_user_id = _extract_target_user(args, event)
+    if target_user_id is None:
+        hint = MessageSegment.at(event.user_id) + (
+            " 请 @ 或提供成员 QQ 号，例如：通过 @成员  或  通过 123456"
         )
         await bot.send_group_msg(group_id=event.group_id, message=hint)
         return

@@ -703,3 +703,63 @@ async def test_pending_list_cmd_empty(app: App) -> None:
             },
         )
         ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
+async def test_approve_cmd_superuser_direct_approve(app: App) -> None:
+    """管理员 /通过 能直接批准验证中的新成员。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        GroupMessageEvent,
+        Message,
+        MessageSegment,
+    )
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    get_session_store().start(
+        group_id=str(_GROUP_ID),
+        user_id=str(_USER_ID),
+        bot_id=str(_SELF_ID),
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+
+    async with app.test_matcher(cmd_module.approve_cmd) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupMessageEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="message",
+            message_type="group",
+            sub_type="normal",
+            message_id=1,
+            group_id=_GROUP_ID,
+            user_id=1330509996,
+            anonymous=None,
+            sender={"user_id": 1330509996, "nickname": "owner", "role": "owner"},
+            raw_message="/通过 10001",
+            message=Message([MessageSegment.text("/通过 10001")]),
+            font=0,
+        )  # type: ignore[call-arg]
+        ctx.should_call_api(
+            "send_group_msg",
+            {
+                "group_id": _GROUP_ID,
+                "message": Message([
+                    MessageSegment.at(_USER_ID),
+                    MessageSegment.text(" 验证通过，欢迎加入本群！"),
+                ]),
+            },
+        )
+        ctx.should_call_api(
+            "send_group_msg",
+            {
+                "group_id": _GROUP_ID,
+                "message": "已直接批准该成员并通过验证。",
+            },
+        )
+        ctx.receive_event(bot, event)

@@ -349,11 +349,15 @@ async def admin_decision(
 ) -> str:
     """FR9：管理员决定踢出或保留。
 
+    admin_decision 附带“插入直接批准”能力：``keep=True`` 时，只要目标成员
+    正处于验证中（``waiting`` / ``awaiting_admin``），管理员即可直接放行并
+    欢迎，无需等待成员提交截图或超时。
+
     Args:
         bot: 当前 Bot 实例。
         group_id: 群号。
         user_id: 目标成员 QQ 号。
-        keep: ``True`` 表示保留（/keep），``False`` 表示踢出（/kick）。
+        keep: ``True`` 表示保留（/keep /通过），``False`` 表示踢出（/kick）。
 
     Returns:
         面向管理员的反馈消息。
@@ -361,11 +365,14 @@ async def admin_decision(
     """
     store = get_session_store()
     if keep:
+        active = store.get(str(group_id), str(user_id))
+        if active is None or active.status not in ("waiting", "awaiting_admin"):
+            return "该成员当前不在验证流程中，无法直接批准。"
         record = store.end(str(group_id), str(user_id), status="approved")
         await _persist_session(record)
         await _record_event(record, event_type="verify.admin_keep", success=True)
         await actions.send_welcome(bot, group_id, user_id)
-        return "已保留该成员并通过验证。"
+        return "已直接批准该成员并通过验证。"
     pre_record = store.get(str(group_id), str(user_id))
     member = await actions.get_member_info(bot, group_id, user_id)
     kicked = await actions.kick_member(bot, group_id, user_id, member)

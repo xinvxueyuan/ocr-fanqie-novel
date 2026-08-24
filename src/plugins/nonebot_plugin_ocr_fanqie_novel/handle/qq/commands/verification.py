@@ -62,6 +62,16 @@ keep_cmd = on_command(
     block=True,
 )
 
+# 管理员“插入直接批准”：对新入群且仍在验证流程(等待截图/待管理员决策)
+# 的成员直接放行并欢迎，无需等待成员提交截图或超时。
+approve_cmd = on_command(
+    "通过",
+    aliases={"直接通过", "批准", "放行", "/通过", "/approve"},
+    permission=SUPERUSER,
+    priority=5,
+    block=True,
+)
+
 # 配置热重载：管理员手动触发重新加载策略与提取规则 TOML。
 reload_config_cmd = on_command(
     "重载番茄OCR配置",
@@ -91,6 +101,7 @@ review_cmd = on_command(
 
 
 __all__ = [
+    "approve_cmd",
     "group_admin_change",
     "group_ban",
     "group_decrease",

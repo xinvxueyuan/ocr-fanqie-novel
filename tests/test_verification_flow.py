@@ -452,8 +452,36 @@ async def test_admin_keep_decision() -> None:
 
     reply = await admin_decision(bot, group_id=123, user_id=10001, keep=True)
 
-    assert "已保留" in reply
+    assert "直接批准" in reply
     assert store.get("123", "10001").status == "approved"  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_admin_keep_requires_active_verification() -> None:
+    """不在验证流程中的成员不应被 /keep 误批准。"""
+    bot: Any = FakeBot()
+    reply = await admin_decision(bot, group_id=123, user_id=10001, keep=True)
+    assert "不在验证流程" in reply
+    # 未结束任何会话、未发欢迎
+    assert get_session_store().get("123", "10001") is None
+    welcomes = [c for c in bot.calls if c[0] == "send_group_msg"]
+    assert all("欢迎" not in str(c[1]["message"]) for c in welcomes)
+
+
+@pytest.mark.asyncio
+async def test_admin_approve_direct_approves_awaiting_admin() -> None:
+    """待管理员决策(awaiting_admin)成员可被直接批准。"""
+    bot: Any = FakeBot()
+    await start_verification(bot, group_id=123, user_id=10001)
+    store = get_session_store()
+    store.await_admin("123", "10001")
+
+    reply = await admin_decision(bot, group_id=123, user_id=10001, keep=True)
+
+    assert "直接批准" in reply
+    assert store.get("123", "10001").status == "approved"  # type: ignore[union-attr]
+    welcomes = [c for c in bot.calls if c[0] == "send_group_msg"]
+    assert any("欢迎" in str(c[1]["message"]) for c in welcomes)
 
 
 @pytest.mark.asyncio
