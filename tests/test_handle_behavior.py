@@ -174,7 +174,7 @@ async def test_group_increase_sends_guide(app: App) -> None:
 
         welcome = (
             f" {plugin_config.fanqie_welcome_message} "
-            "请在 5 分钟内发送，超时后将由管理员人工处理。"
+            "请在 10 分钟内发送，超时后将由管理员人工处理。"
         )
         expected_message = Message(MessageSegment.at(_USER_ID)) + welcome
         ctx.should_call_api(

@@ -358,3 +358,116 @@ async def test_set_review_count_writes_back() -> None:
     assert updated is not None
     assert updated.review_count == 5
     store.close()
+
+
+def _waiting_record(*, expires_at: datetime) -> SessionRecord:
+    return SessionRecord(
+        group_id="123",
+        user_id="10001",
+        bot_id="bot1",
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+        trigger_time=datetime.now(UTC),
+        expires_at=expires_at,
+        status="awaiting_admin",
+    )
+
+
+@pytest.mark.asyncio
+async def test_await_admin_schedules_reminders() -> None:
+    """转入待管理员决策应调度被移出前提醒任务（默认 3600/300s）。"""
+    store = SessionStore()
+    fired: list[tuple[str, str, int]] = []
+
+    async def reminder_cb(group_id: str, user_id: str, remaining: int) -> None:
+        fired.append((group_id, user_id, remaining))
+
+    store.set_reminder_callback(reminder_cb)
+    _start(store)
+    store.await_admin("123", "10001")
+
+    assert len(store._reminder_tasks["123", "10001"]) == 2  # 1h 与 5min
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_reminder_skipped_when_already_passed() -> None:
+    """剩余时间不足的提前量不应调度提醒任务。"""
+    from datetime import timedelta
+
+    store = SessionStore()
+    fired: list[tuple[str, str, int]] = []
+
+    async def reminder_cb(group_id: str, user_id: str, remaining: int) -> None:
+        fired.append((group_id, user_id, remaining))
+
+    store.set_reminder_callback(reminder_cb)
+    _start(store)
+    store.await_admin("123", "10001")
+
+    # 剩余仅 2 分钟（< 5min），1h 与 5min 两个提前量均已过，不调度提醒
+    now = datetime.now(UTC)
+    store.restore(_waiting_record(expires_at=now + timedelta(minutes=2)))
+    assert store._reminder_tasks.get(("123", "10001"), []) == []
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_run_reminder_fires_callback() -> None:
+    """触发提醒任务应调用提醒回调（仍在 awaiting_admin）。"""
+    from datetime import timedelta
+
+    store = SessionStore()
+    fired: list[tuple[str, str, int]] = []
+
+    async def reminder_cb(group_id: str, user_id: str, remaining: int) -> None:
+        fired.append((group_id, user_id, remaining))
+
+    store.set_reminder_callback(reminder_cb)
+    now = datetime.now(UTC)
+    store.restore(_waiting_record(expires_at=now + timedelta(seconds=30)))
+
+    await store._run_reminder(("123", "10001"), ahead=3600)  # 提前量>剩余→立即触发
+    assert len(fired) == 1
+    assert fired[0][0] == "123" and fired[0][1] == "10001"
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_run_reminder_no_fire_after_end() -> None:
+    """会话结束后提醒不应触发。"""
+    from datetime import timedelta
+
+    store = SessionStore()
+    fired: list[tuple[str, str, int]] = []
+
+    async def reminder_cb(group_id: str, user_id: str, remaining: int) -> None:
+        fired.append((group_id, user_id, remaining))
+
+    store.set_reminder_callback(reminder_cb)
+    now = datetime.now(UTC)
+    store.restore(_waiting_record(expires_at=now + timedelta(seconds=30)))
+    store.end("123", "10001", status="kicked")
+
+    await store._run_reminder(("123", "10001"), ahead=3600)
+    assert fired == []
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_reminder_tasks_cancelled_on_end() -> None:
+    """会话结束应取消已调度的提醒任务。"""
+    store = SessionStore()
+
+    async def reminder_cb(group_id: str, user_id: str, remaining: int) -> None:
+        _ = (group_id, user_id, remaining)
+
+    store.set_reminder_callback(reminder_cb)
+    _start(store)
+    store.await_admin("123", "10001")
+    assert len(store._reminder_tasks["123", "10001"]) == 2
+
+    store.end("123", "10001", status="approved")
+    assert ("123", "10001") not in store._reminder_tasks
+    store.close()

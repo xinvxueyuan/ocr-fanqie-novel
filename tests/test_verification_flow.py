@@ -12,6 +12,7 @@ from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
     flow as flow_module,
     get_session_store,
     handle_admin_decision_timeout,
+    handle_reminder,
     handle_submission,
     handle_timeout,
     restore_pending_sessions,
@@ -878,6 +879,91 @@ async def test_review_rejects_missing_member() -> None:
         bot, group_id=123, user_id=10001, triggered_by_admin=True
     )
     assert "不在群" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_timeout_announces_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """成员响应超时应先在群内 @ 成员提示已超时、可重审。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.core.config import plugin_config
+
+    monkeypatch.setattr(plugin_config, "fanqie_admin_ids", {90001})
+    monkeypatch.setattr(plugin_config, "fanqie_notify_admin", True)
+
+    bot: Any = FakeBot()
+
+    async def fake_get_bot(bot_id: str) -> FakeBot:
+        _ = bot_id
+        return bot
+
+    monkeypatch.setattr(flow_module, "_get_bot", fake_get_bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+
+    await handle_timeout("123", "10001")
+
+    announces = [c for c in bot.calls if c[0] == "send_group_msg"]
+    assert any(
+        "超时" in str(c[1]["message"]) and "重审" in str(c[1]["message"])
+        for c in announces
+    )
+    # 仍未移出
+    kicks = [c for c in bot.calls if c[0] == "set_group_kick"]
+    assert kicks == []
+    record = get_session_store().get("123", "10001")
+    assert record is not None and record.status == "awaiting_admin"
+
+
+@pytest.mark.asyncio
+async def test_handle_reminder_announces_before_kick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """待管理员决策成员被移出前应收到群内提醒（含剩余时长）。"""
+    bot: Any = FakeBot()
+
+    async def fake_get_bot(bot_id: str) -> FakeBot:
+        _ = bot_id
+        return bot
+
+    monkeypatch.setattr(flow_module, "_get_bot", fake_get_bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+    get_session_store().await_admin("123", "10001")
+
+    await handle_reminder("123", "10001", remaining_seconds=3540)
+
+    announces = [c for c in bot.calls if c[0] == "send_group_msg"]
+    assert any(
+        "移出" in str(c[1]["message"]) and "重审" in str(c[1]["message"])
+        for c in announces
+    )
+    # 提醒不触发踢出
+    kicks = [c for c in bot.calls if c[0] == "set_group_kick"]
+    assert kicks == []
+    record = get_session_store().get("123", "10001")
+    assert record is not None and record.status == "awaiting_admin"
+
+
+@pytest.mark.asyncio
+async def test_handle_reminder_member_left_no_announce(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """成员已不在群时，移出前提醒应静默跳过。"""
+    bot: Any = FakeBot(in_group=False)
+
+    async def fake_get_bot(bot_id: str) -> FakeBot:
+        _ = bot_id
+        return bot
+
+    monkeypatch.setattr(flow_module, "_get_bot", fake_get_bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+    get_session_store().await_admin("123", "10001")
+
+    await handle_reminder("123", "10001", remaining_seconds=3540)
+
+    announces = [c for c in bot.calls if c[0] == "send_group_msg"]
+    assert all("移出" not in str(c[1]["message"]) for c in announces)
+    kicks = [c for c in bot.calls if c[0] == "set_group_kick"]
+    assert kicks == []
 
 
 def _box(y: int) -> list[list[int]]:

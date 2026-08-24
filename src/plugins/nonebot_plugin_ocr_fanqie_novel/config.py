@@ -22,6 +22,9 @@ class Config(BaseModel):
             失败处理并通知管理员。
         fanqie_admin_decision_timeout: 通知管理员后等待其决策的超时时间
             （秒），超时后将在群内通报并移出该成员。默认 16 小时。
+        fanqie_remind_before_kick: 待管理员决策成员被移出前，提前提醒该
+            成员的秒数列表（升序，如 ``[3600, 300]`` 表示最后 1 小时、
+            5 分钟各提醒一次）。
         fanqie_review_max_times: 普通群成员（非群管理/群主）通过“重审”
             命令重新发起验证的最大次数，达到上限后需由管理员处理。
             管理员主动发起的重审不受此限制。默认 2 次。
@@ -51,9 +54,10 @@ class Config(BaseModel):
         "请发送一张您在番茄小说发布的「书评详情页」截图"
         "（需显示您的书评及「我」徽章）。谢谢配合！"
     )
-    fanqie_response_timeout: int = 300
+    fanqie_response_timeout: int = 600
     fanqie_max_attempts: int = 3
     fanqie_admin_decision_timeout: int = 57600  # 16 小时（秒）
+    fanqie_remind_before_kick: tuple[int, ...] = (3600, 300)
     fanqie_review_max_times: int = 2
     fanqie_notify_admin: bool = True
     fanqie_book_name_max_len: int = 100

@@ -154,6 +154,67 @@ async def announce_admin_timeout(
     return True
 
 
+async def announce_member_timeout(
+    bot: OneBot11Bot,
+    group_id: int,
+    user_id: int,
+) -> bool:
+    """FR7：成员响应超时后，在群内 @ 成员提示已超时并指引重审。"""
+    message = Message(MessageSegment.at(user_id)) + (
+        " 验证超时未收到书评截图。如需继续验证，请在群内发送「重审」重试，"
+        "或等待管理员处理。"
+    )
+    try:
+        await bot.send_group_msg(group_id=group_id, message=message)
+    except ActionFailed:
+        logger.warning("群内提示成员超时失败 group={} user={}", group_id, user_id)
+        return False
+    return True
+
+
+async def announce_kick_reminder(
+    bot: OneBot11Bot,
+    group_id: int,
+    user_id: int,
+    remaining_seconds: int,
+) -> bool:
+    """管理决策超时前提醒成员：临近被移出，指引重审。
+
+    Args:
+        bot: 当前 Bot 实例。
+        group_id: 群号。
+        user_id: 成员 QQ 号。
+        remaining_seconds: 距被移出剩余的秒数。
+
+    Returns:
+        是否发送成功。
+
+    """
+    remaining = _format_remaining(remaining_seconds)
+    message = Message(MessageSegment.at(user_id)) + (
+        f" 您的验证尚未通过，距被移出群聊还有约 {remaining}。"
+        "如需继续验证，请在群内发送「重审」重试，或请管理员处理。"
+    )
+    try:
+        await bot.send_group_msg(group_id=group_id, message=message)
+    except ActionFailed:
+        logger.warning("群内移出前提醒失败 group={} user={}", group_id, user_id)
+        return False
+    return True
+
+
+def _format_remaining(total_seconds: int) -> str:
+    """把剩余秒数格式化为人类可读的时长描述。"""
+    total = max(0, int(total_seconds))
+    hours, remainder = divmod(total, 3600)
+    minutes = remainder // 60
+    if hours and minutes:
+        return f"{hours} 小时 {minutes} 分钟"
+    if hours:
+        return f"{hours} 小时"
+    return f"{max(1, minutes)} 分钟"
+
+
 async def kick_member(
     bot: OneBot11Bot,
     group_id: int,
@@ -281,6 +342,8 @@ __all__ = [
     "MemberInfo",
     "_is_admin",
     "announce_admin_timeout",
+    "announce_kick_reminder",
+    "announce_member_timeout",
     "build_admin_notice",
     "get_member_info",
     "kick_member",

@@ -275,11 +275,36 @@ async def handle_timeout(group_id: str, user_id: str) -> None:
         )
         return
 
+    # 超时后在群内 @ 成员提示已超时、可发送「重审」重试。
+    await actions.announce_member_timeout(bot, int(group_id), int(user_id))
     await _await_admin_decision(
         bot,
         group_id=group_id,
         user_id=user_id,
         reason=f"用户 {user_id} 在群 {group_id} 超时未提供截图",
+    )
+
+
+async def handle_reminder(group_id: str, user_id: str, remaining_seconds: int) -> None:
+    """待管理员决策成员被移出前提醒（由会话存储的提醒任务触发）。"""
+    store = get_session_store()
+    record = store.get(group_id, user_id)
+    if record is None or record.status != "awaiting_admin":
+        return
+    bot_id = record.bot_id
+    if not bot_id:
+        return
+    bot = await _get_bot(bot_id)
+    if bot is None:
+        return
+    member = await actions.get_member_info(bot, int(group_id), int(user_id))
+    if member is None:
+        return
+    await actions.announce_kick_reminder(
+        bot,
+        int(group_id),
+        int(user_id),
+        remaining_seconds,
     )
 
 
@@ -632,6 +657,7 @@ async def _get_bot(bot_id: str) -> Bot | None:
 __all__ = [
     "admin_decision",
     "handle_admin_decision_timeout",
+    "handle_reminder",
     "handle_submission",
     "handle_timeout",
     "restore_pending_sessions",

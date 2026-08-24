@@ -12,16 +12,17 @@ from src.plugins.nonebot_plugin_ocr_fanqie_novel.config import Config
 def test_plugin_config_defaults() -> None:
     """Config 模型应带有合理默认值（不含环境变量覆盖）。"""
     cfg = Config()
-    assert cfg.fanqie_response_timeout == 300
+    assert cfg.fanqie_response_timeout == 600
     assert cfg.fanqie_max_attempts == 3
     assert cfg.fanqie_notify_admin is True
     assert cfg.fanqie_admin_ids == set()
     assert cfg.fanqie_book_name_max_len == 100
+    assert cfg.fanqie_remind_before_kick == (3600, 300)
 
 
 def test_plugin_config_from_global() -> None:
     """插件模块级 config 应能正常解析且与默认值一致。"""
-    assert plugin_config.fanqie_response_timeout == 300
+    assert plugin_config.fanqie_response_timeout == 600
     assert plugin_config.fanqie_welcome_message
 
 

@@ -12,6 +12,7 @@ from ..services.message_store import (
 from ..services.verification import (
     get_session_store,
     handle_admin_decision_timeout,
+    handle_reminder,
     handle_timeout,
     restore_pending_sessions,
 )
@@ -25,6 +26,7 @@ async def startup() -> None:
     store = get_session_store()
     store.set_timeout_callback(handle_timeout)
     store.set_admin_timeout_callback(handle_admin_decision_timeout)
+    store.set_reminder_callback(handle_reminder)
     await restore_pending_sessions()
     logger.info("番茄读书验证插件启动完成")
 

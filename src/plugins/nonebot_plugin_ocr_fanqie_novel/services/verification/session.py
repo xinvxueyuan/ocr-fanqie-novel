@@ -21,6 +21,9 @@ _SessionKey = tuple[str, str]
 
 TimeoutCallback = Callable[[str, str], Awaitable[None]]
 
+# 待管理员决策成员被移出前的提醒回调：参数为 (group_id, user_id, 剩余秒数)。
+ReminderCallback = Callable[[str, str, int], Awaitable[None]]
+
 
 @dataclass(frozen=True, slots=True)
 class SessionRecord:
@@ -65,8 +68,10 @@ class SessionStore:
     def __init__(self) -> None:
         self._sessions: dict[_SessionKey, SessionRecord] = {}
         self._timeout_tasks: dict[_SessionKey, asyncio.Task] = {}
+        self._reminder_tasks: dict[_SessionKey, list[asyncio.Task]] = {}
         self._timeout_callback: TimeoutCallback | None = None
         self._admin_timeout_callback: TimeoutCallback | None = None
+        self._reminder_callback: ReminderCallback | None = None
         self._closed = False
 
     def set_timeout_callback(self, callback: TimeoutCallback) -> None:
@@ -76,6 +81,10 @@ class SessionStore:
     def set_admin_timeout_callback(self, callback: TimeoutCallback) -> None:
         """注册管理员决策超时回调（由编排层注入）。"""
         self._admin_timeout_callback = callback
+
+    def set_reminder_callback(self, callback: ReminderCallback) -> None:
+        """注册待管理员决策成员的移出前提醒回调（由编排层注入）。"""
+        self._reminder_callback = callback
 
     def get(self, group_id: str, user_id: str) -> SessionRecord | None:
         """返回活跃会话记录；不存在时返回 ``None``。"""
@@ -278,11 +287,73 @@ class SessionStore:
             name=task_name,
         )
         self._timeout_tasks[key] = task
+        if record.status == "awaiting_admin":
+            self._schedule_reminders(key)
 
     def _cancel_timeout(self, key: _SessionKey) -> None:
         task = self._timeout_tasks.pop(key, None)
         if task is not None and not task.done():
             task.cancel()
+        reminder_tasks = self._reminder_tasks.pop(key, None)
+        if reminder_tasks:
+            for reminder_task in reminder_tasks:
+                if not reminder_task.done():
+                    reminder_task.cancel()
+
+    def _schedule_reminders(self, key: _SessionKey) -> None:
+        """为待管理员决策会话调度被移出前的提醒协程。
+
+        在每个配置的提前量（``fanqie_remind_before_kick``）到达时触发
+        提醒回调；若提前量已过（剩余时间不足）则跳过该次提醒。重入时
+        先取消既有提醒任务（如 restore 重复调度）。
+        """
+        if self._closed or self._reminder_callback is None:
+            return
+        previous = self._reminder_tasks.pop(key, None)
+        if previous:
+            for task in previous:
+                if not task.done():
+                    task.cancel()
+        record = self._sessions[key]
+        now = datetime.now(UTC)
+        for ahead in sorted(
+            (int(v) for v in plugin_config.fanqie_remind_before_kick), reverse=True
+        ):
+            if ahead <= 0:
+                continue
+            fire_at = record.expires_at - timedelta(seconds=ahead)
+            delay = (fire_at - now).total_seconds()
+            if delay <= 0:
+                continue  # 该提前量已过，跳过
+            task_name = f"fanqie-remind:{key[0]}:{key[1]}:{ahead}"
+            task = asyncio.create_task(
+                self._run_reminder(key, ahead),
+                name=task_name,
+            )
+            self._reminder_tasks.setdefault(key, []).append(task)
+
+    async def _run_reminder(self, key: _SessionKey, ahead: int) -> None:
+        """等待到应提醒时刻，仍处于待管理员决策则触发提醒回调。"""
+        record = self._sessions[key]
+        fire_at = record.expires_at - timedelta(seconds=ahead)
+        delay = max(0.0, (fire_at - datetime.now(UTC)).total_seconds())
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        record = self._sessions.get(key)
+        if record is None or record.status != "awaiting_admin":
+            return
+        remaining = int((record.expires_at - datetime.now(UTC)).total_seconds())
+        if remaining <= 0:
+            return  # 已到移出时刻，交由超时回调处理
+        callback = self._reminder_callback
+        if callback is None:
+            return
+        try:
+            await callback(record.group_id, record.user_id, remaining)
+        except Exception:
+            logger.exception("处理移出前提醒失败: {}", key)
 
     async def _run_timeout(self, key: _SessionKey, delay: float, status: str) -> None:
         """等待超时并触发对应回调（若会话仍处于该状态）。"""
@@ -352,12 +423,17 @@ class SessionStore:
         return record
 
     def close(self) -> None:
-        """取消所有超时任务（停机时调用）。"""
+        """取消所有超时、提醒任务（停机时调用）。"""
         self._closed = True
         for task in self._timeout_tasks.values():
             if not task.done():
                 task.cancel()
         self._timeout_tasks.clear()
+        for tasks in self._reminder_tasks.values():
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+        self._reminder_tasks.clear()
 
 
 _store: SessionStore | None = None
