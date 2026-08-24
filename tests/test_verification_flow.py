@@ -642,6 +642,7 @@ async def test_restore_pending_sessions(
             trigger_time=now - timedelta(minutes=2),
             expires_at=now + timedelta(minutes=3),
             retry_count=0,
+            review_count=2,
             is_muted=False,
             last_extracted=None,
             status="waiting",
@@ -656,6 +657,7 @@ async def test_restore_pending_sessions(
             trigger_time=now - timedelta(hours=1),
             expires_at=now + timedelta(hours=15),
             retry_count=0,
+            review_count=1,
             is_muted=False,
             last_extracted=None,
             status="awaiting_admin",
@@ -685,6 +687,9 @@ async def test_restore_pending_sessions(
     assert awaiting is not None and awaiting.status == "awaiting_admin"
     assert len(store.list_waiting()) == 1
     assert len(store.list_awaiting_admin("123")) == 1
+    # 重审计数应从数据库恢复，重启后不丢
+    assert waiting is not None and waiting.review_count == 2
+    assert awaiting is not None and awaiting.review_count == 1
 
 
 def _ocr_result_with_evidence() -> Any:
@@ -964,6 +969,114 @@ async def test_handle_reminder_member_left_no_announce(
     assert all("移出" not in str(c[1]["message"]) for c in announces)
     kicks = [c for c in bot.calls if c[0] == "set_group_kick"]
     assert kicks == []
+
+
+async def _record_events(monkeypatch: pytest.MonkeyPatch, bot: Any) -> list[str]:
+    """Mock 事件写入并返回已记录的事件类型序列。"""
+    recorded: list[str] = []
+
+    async def fake_record_event(_session: Any, event: Any) -> Any:
+        recorded.append(event.event_type)
+        return event
+
+    monkeypatch.setattr(
+        flow_module.repository,
+        "record_verification_event",
+        fake_record_event,
+    )
+
+    async def fake_get_bot(bot_id: str) -> FakeBot:
+        _ = bot_id
+        return bot
+
+    monkeypatch.setattr(flow_module, "_get_bot", fake_get_bot)
+    return recorded
+
+
+@pytest.mark.asyncio
+async def test_flow_records_start_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """开启验证应记录 verify.start 事件。"""
+    bot: Any = FakeBot()
+    recorded = await _record_events(monkeypatch, bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+    assert "verify.start" in recorded
+
+
+@pytest.mark.asyncio
+async def test_flow_records_pass_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """通过验证应记录 verify.pass 事件。"""
+
+    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
+        return _ocr_result_with_evidence()
+
+    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    bot: Any = FakeBot()
+    recorded = await _record_events(monkeypatch, bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+    await handle_submission(
+        bot, group_id=123, user_id=10001, image_url="https://example.com/a.png"
+    )
+    assert "verify.start" in recorded
+    assert "verify.pass" in recorded
+
+
+@pytest.mark.asyncio
+async def test_flow_records_timeout_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """响应超时应记录 verify.timeout 事件。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.core.config import plugin_config
+
+    monkeypatch.setattr(plugin_config, "fanqie_admin_ids", {90001})
+    monkeypatch.setattr(plugin_config, "fanqie_notify_admin", True)
+    bot: Any = FakeBot()
+    recorded = await _record_events(monkeypatch, bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+    await handle_timeout("123", "10001")
+    assert "verify.timeout" in recorded
+
+
+@pytest.mark.asyncio
+async def test_flow_records_reminder_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """移出前提醒应记录 verify.reminder 事件。"""
+    bot: Any = FakeBot()
+    recorded = await _record_events(monkeypatch, bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+    get_session_store().await_admin("123", "10001")
+    await handle_reminder("123", "10001", remaining_seconds=3540)
+    assert "verify.reminder" in recorded
+
+
+@pytest.mark.asyncio
+async def test_flow_records_admin_keep_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """管理员 /keep 应记录 verify.admin_keep 事件。"""
+    bot: Any = FakeBot()
+    recorded = await _record_events(monkeypatch, bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+    await admin_decision(bot, group_id=123, user_id=10001, keep=True)
+    assert "verify.admin_keep" in recorded
+
+
+@pytest.mark.asyncio
+async def test_flow_records_review_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """普通成员重审应记录 verify.review 事件（含 by_admin 标记）。"""
+    bot: Any = FakeBot()
+    recorded = await _record_events(monkeypatch, bot)
+    await start_verification(bot, group_id=123, user_id=10001)
+    await review_verification(
+        bot, group_id=123, user_id=10001, triggered_by_admin=False
+    )
+    assert "verify.review" in recorded
 
 
 def _box(y: int) -> list[list[int]]:

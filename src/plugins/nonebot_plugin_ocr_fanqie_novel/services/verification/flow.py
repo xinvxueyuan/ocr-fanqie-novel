@@ -106,9 +106,13 @@ async def start_verification(
         get_session_store().remove(str(group_id), str(user_id))
         return None
     if member.is_muted:
-        get_session_store().set_muted(str(group_id), str(user_id), is_muted=True)
+        record = (
+            get_session_store().set_muted(str(group_id), str(user_id), is_muted=True)
+            or record
+        )
 
     await _persist_session(record)
+    await _record_event(record, event_type="verify.start")
     await actions.send_guide(bot, group_id, user_id)
     logger.info(
         "新成员 {} 进入群 {} 验证流程，截止 {}",
@@ -149,7 +153,8 @@ async def handle_submission(
         store.remove(str(group_id), str(user_id))
         return "你已不在群聊中，无需验证。"
     if member.is_muted and not record.is_muted:
-        store.set_muted(str(group_id), str(user_id), is_muted=True)
+        record = store.set_muted(str(group_id), str(user_id), is_muted=True) or record
+        await _persist_session(record)
 
     if not image_url:
         return await _handle_download_failure(group_id, user_id)
@@ -243,7 +248,16 @@ async def review_verification(
     # start 创建了新会话（retry 重置、review_count 归零）；普通成员自审
     # 需要把旧会话的重审计数延续下来（+1），管理员重审视为全新流程。
     if not triggered_by_admin and old_record is not None:
-        store.set_review_count(group_key, user_key, old_record.review_count + 1)
+        updated_review = old_record.review_count + 1
+        updated = store.set_review_count(group_key, user_key, updated_review)
+        if updated is not None:
+            await _persist_session(updated)
+    await _record_event(
+        store.get(group_key, user_key),
+        event_type="verify.review",
+        success=True,
+        detail={"by_admin": triggered_by_admin},
+    )
     return "已重新发起验证，请查看新的引导消息并尽快提交截图。"
 
 
@@ -265,7 +279,14 @@ async def handle_timeout(group_id: str, user_id: str) -> None:
     member = await actions.get_member_info(bot, int(group_id), int(user_id))
     if member is None:
         logger.info("超时处理：成员 {} 已不在群 {} 中，直接结束", user_id, group_id)
-        await _persist_session(store.end(group_id, user_id, status="expired"))
+        ended = store.end(group_id, user_id, status="expired")
+        await _persist_session(ended)
+        await _record_event(
+            ended,
+            event_type="verify.timeout",
+            success=False,
+            detail={"left_group": True},
+        )
         await actions.notify_admins(
             bot,
             group_id=int(group_id),
@@ -277,6 +298,11 @@ async def handle_timeout(group_id: str, user_id: str) -> None:
 
     # 超时后在群内 @ 成员提示已超时、可发送「重审」重试。
     await actions.announce_member_timeout(bot, int(group_id), int(user_id))
+    await _record_event(
+        store.get(group_id, user_id),
+        event_type="verify.timeout",
+        success=True,
+    )
     await _await_admin_decision(
         bot,
         group_id=group_id,
@@ -306,6 +332,12 @@ async def handle_reminder(group_id: str, user_id: str, remaining_seconds: int) -
         int(user_id),
         remaining_seconds,
     )
+    await _record_event(
+        record,
+        event_type="verify.reminder",
+        success=True,
+        detail={"remaining_seconds": remaining_seconds},
+    )
 
 
 async def admin_decision(
@@ -331,12 +363,19 @@ async def admin_decision(
     if keep:
         record = store.end(str(group_id), str(user_id), status="approved")
         await _persist_session(record)
+        await _record_event(record, event_type="verify.admin_keep", success=True)
         await actions.send_welcome(bot, group_id, user_id)
         return "已保留该成员并通过验证。"
+    pre_record = store.get(str(group_id), str(user_id))
     member = await actions.get_member_info(bot, group_id, user_id)
     kicked = await actions.kick_member(bot, group_id, user_id, member)
     record = store.end(str(group_id), str(user_id), status="kicked")
     await _persist_session(record)
+    await _record_event(
+        pre_record or record,
+        event_type="verify.admin_kick",
+        success=kicked,
+    )
     if member is None:
         return "该成员已不在群聊中。"
     return "已将该成员移出群聊。" if kicked else "踢出失败，请检查机器人权限。"
@@ -359,7 +398,13 @@ async def _handle_insufficient(
 async def _handle_download_failure(group_id: int, user_id: int) -> str:
     """PRD 10：图片下载失败不计入识别失败，提示重新发送。"""
     store = get_session_store()
-    await _persist_session(store.get(str(group_id), str(user_id)))
+    record = store.get(str(group_id), str(user_id))
+    await _persist_session(record)
+    await _record_event(
+        record,
+        event_type="verify.download_fail",
+        success=False,
+    )
     return "图片获取失败，请重新发送清晰的截图。"
 
 
@@ -376,6 +421,16 @@ async def _increment_retry(
     if updated is None:
         return "当前没有待处理的验证请求。"
     await _persist_session(updated)
+    await _record_event(
+        updated,
+        event_type="verify.retry",
+        success=False,
+        detail={
+            "kind": kind,
+            "retry_count": updated.retry_count,
+            "max_attempts": plugin_config.fanqie_max_attempts,
+        },
+    )
 
     remaining = plugin_config.fanqie_max_attempts - updated.retry_count
     if remaining > 0:
@@ -422,12 +477,14 @@ async def _handle_pass(
     member = await actions.get_member_info(bot, group_id, user_id)
     if member is None:
         logger.info("放行处理：成员 {} 已不在群 {} 中，仅结束会话", user_id, group_id)
-        await _persist_session(
-            store.end(str(group_id), str(user_id), status="approved")
-        )
+        ended = store.end(str(group_id), str(user_id), status="approved")
+        await _persist_session(ended)
+        await _record_event(ended, event_type="verify.pass", success=True)
         return "验证通过。"
 
-    await _persist_session(store.end(str(group_id), str(user_id), status="approved"))
+    ended = store.end(str(group_id), str(user_id), status="approved")
+    await _persist_session(ended)
+    await _record_event(ended, event_type="verify.pass", success=True)
     return "验证通过，欢迎加入本群！"
 
 
@@ -444,8 +501,13 @@ async def _handle_reject(
     member = await actions.get_member_info(bot, group_id, user_id)
     if member is None:
         logger.info("拒绝处理：成员 {} 已不在群 {} 中，仅结束会话", user_id, group_id)
-        await _persist_session(
-            store.end(str(group_id), str(user_id), status="rejected")
+        ended = store.end(str(group_id), str(user_id), status="rejected")
+        await _persist_session(ended)
+        await _record_event(
+            ended,
+            event_type="verify.reject",
+            success=False,
+            detail={"left_group": True, "reason": reason},
         )
         await actions.notify_admins(
             bot,
@@ -459,6 +521,12 @@ async def _handle_reject(
         )
         return "验证未通过。"
 
+    await _record_event(
+        store.get(str(group_id), str(user_id)),
+        event_type="verify.reject",
+        success=False,
+        detail={"left_group": False, "reason": reason},
+    )
     await _await_admin_decision(
         bot,
         group_id=str(group_id),
@@ -488,6 +556,12 @@ async def _await_admin_decision(
     last_extracted = _to_dict(evidence) if evidence is not None else None
     record = store.await_admin(group_id, user_id, last_extracted=last_extracted)
     await _persist_session(record)
+    await _record_event(
+        record,
+        event_type="verify.await_admin",
+        success=True,
+        detail={"reason": reason},
+    )
     message = (
         actions.build_admin_notice(
             group_id=int(group_id),
@@ -545,12 +619,26 @@ async def handle_admin_decision_timeout(group_id: str, user_id: str) -> None:
     member = await actions.get_member_info(bot, int(group_id), int(user_id))
     if member is None:
         logger.info("管理决策超时：成员 {} 已不在群 {} 中，直接结束", user_id, group_id)
-        await _persist_session(store.end(group_id, user_id, status="expired"))
+        ended = store.end(group_id, user_id, status="expired")
+        await _persist_session(ended)
+        await _record_event(
+            ended,
+            event_type="verify.admin_timeout",
+            success=False,
+            detail={"left_group": True},
+        )
         return
 
     await actions.announce_admin_timeout(bot, int(group_id), int(user_id))
     await actions.kick_member(bot, int(group_id), int(user_id), member)
-    await _persist_session(store.end(group_id, user_id, status="kicked"))
+    kicked_record = store.end(group_id, user_id, status="kicked")
+    await _persist_session(kicked_record)
+    await _record_event(
+        record,
+        event_type="verify.admin_timeout",
+        success=True,
+        detail={"left_group": False},
+    )
     logger.info("管理决策超时：成员 {} 已从群 {} 移出", user_id, group_id)
 
 
@@ -587,6 +675,7 @@ async def restore_pending_sessions() -> int:
             trigger_time=row.trigger_time,
             expires_at=expires_at,
             retry_count=row.retry_count,
+            review_count=getattr(row, "review_count", 0),
             is_muted=row.is_muted,
             last_extracted=row.last_extracted,
             status=row.status,
@@ -623,6 +712,7 @@ async def _persist_session(record: SessionRecord | None) -> None:
                 ),
                 status=record.status,
                 retry_count=record.retry_count,
+                review_count=record.review_count,
                 is_muted=record.is_muted,
                 last_extracted=record.last_extracted,
                 trigger_time=record.trigger_time,
@@ -630,6 +720,41 @@ async def _persist_session(record: SessionRecord | None) -> None:
             )
     except Exception:  # noqa: BLE001 - 持久化失败不阻断主流程
         logger.exception("持久化验证会话失败: {}", (record.group_id, record.user_id))
+
+
+async def _record_event(
+    record: SessionRecord | None,
+    *,
+    event_type: str,
+    success: bool | None = None,
+    detail: dict | None = None,
+) -> None:
+    """把验证流程关键事件写入事件表（尽力而为）。
+
+    事件类型覆盖全部流程节点：verify.start / verify.pass / verify.reject /
+    verify.timeout / verify.reminder / verify.admin_timeout / verify.admin_keep /
+    verify.admin_kick / verify.review / verify.retry / verify.download_fail。
+    """
+    if record is None or not plugin_config.fanqie_message_store_enabled:
+        return
+    try:
+        async with get_session() as session:
+            await repository.record_verification_event(
+                session,
+                repository.VerificationEventWrite(
+                    platform_id=record.platform_id,
+                    adapter_id=record.adapter_id,
+                    protocol_id=record.protocol_id,
+                    bot_id=record.bot_id,
+                    group_id=record.group_id,
+                    user_id=record.user_id,
+                    event_type=event_type,
+                    success=success,
+                    detail=detail or None,
+                ),
+            )
+    except Exception:  # noqa: BLE001 - 事件记录失败不阻断主流程
+        logger.exception("记录验证事件失败: {}", event_type)
 
 
 async def _persist_last_extracted(

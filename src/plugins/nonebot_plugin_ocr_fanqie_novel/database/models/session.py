@@ -40,6 +40,8 @@ class VerificationSession(Model):
         status: 会话状态（waiting / awaiting_admin / approved / rejected /
             kicked / expired / failed / cleared）。
         retry_count: 识别失败的累计次数。
+        review_count: 普通成员通过“重审”命令重新发起验证的累计次数（管理员
+            发起不计），用于重启后保留重审上限计数。
         is_muted: 该成员当前是否已被禁言。
         last_extracted: 最近一次 OCR 提取结果（书名、章节、阅读时间）。
         trigger_time: 触发入群验证的时间。
@@ -66,6 +68,7 @@ class VerificationSession(Model):
     user_id: Mapped[str] = mapped_column(String(128), index=True)
     status: Mapped[str] = mapped_column(String(32), default="waiting", index=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    review_count: Mapped[int] = mapped_column(Integer, default=0)
     is_muted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     last_extracted: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     trigger_time: Mapped[datetime] = mapped_column(
