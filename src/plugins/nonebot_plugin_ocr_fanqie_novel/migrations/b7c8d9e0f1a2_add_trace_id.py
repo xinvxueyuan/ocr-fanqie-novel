@@ -43,6 +43,18 @@ def _has_column(table: str, column: str) -> bool:
     return any(row[1] == column for row in columns)
 
 
+def _has_index(table: str, index_name: str) -> bool:
+    """检查指定索引是否已存在（幂等保护）。"""
+    bind = op.get_bind()
+    try:
+        rows = bind.execute(
+            sa.text(f"PRAGMA index_list({table})")
+        ).fetchall()
+    except Exception:  # noqa: BLE001 - 表尚不存在视为无索引
+        return False
+    return any(row[1] == index_name for row in rows)
+
+
 def upgrade(name: str = "") -> None:
     if name:
         return
@@ -54,11 +66,19 @@ def upgrade(name: str = "") -> None:
                     column, sa.String(length=64), nullable=True, server_default=None
                 ),
             )
+    # trace_id 列在 ORM 中声明 index=True，需补建索引，否则启动检查拦截。
+    for table, column in _TRACE_TABLES:
+        index_name = f"ix_{table}_{column}"
+        if not _has_index(table, index_name):
+            op.create_index(index_name, table, [column])
 
 
 def downgrade(name: str = "") -> None:
     if name:
         return
     for table, column in _TRACE_TABLES:
+        index_name = f"ix_{table}_{column}"
+        if _has_index(table, index_name):
+            op.drop_index(index_name, table_name=table)
         if _has_column(table, column):
             op.drop_column(table, column)
