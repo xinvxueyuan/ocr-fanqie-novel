@@ -231,7 +231,10 @@ async def _recognize_and_extract(
             ev.book_name.value if ev.book_name else None,
             ev.author.value if ev.author else None,
         )
-    return fusion.merge_evidences(evidences)
+    return fusion.merge_evidences(
+        evidences,
+        threshold=plugin_config.fanqie_similarity_threshold,
+    )
 
 
 def _default_ocr_model() -> str:

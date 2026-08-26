@@ -9,14 +9,13 @@
 本融合器对**每个字段**在所有模型提取结果中取置信度最高、且不低于
 可配置阈值的值（逐字段选优），最大化利用各模型各自擅长的能力。
 
-阈值默认 0.9，可通过 ``FANQIE_SIMILARITY_THRESHOLD`` 配置。
+阈值默认 0.9，可通过 ``FANQIE_SIMILARITY_THRESHOLD`` 配置。本模块是
+**纯逻辑**，不依赖 ``core.config`` / nonebot，可被独立 CLI 直接复用。
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-
-from ...core.config import plugin_config
 
 if TYPE_CHECKING:
     from .models import ExtractedField, ReadingEvidence
@@ -31,6 +30,9 @@ _FUSION_FIELDS: tuple[str, ...] = (
     "author",
     "review_text",
 )
+
+# 默认置信度阈值（不传参时使用）。
+_DEFAULT_THRESHOLD = 0.9
 
 
 def _pick_field(
@@ -74,17 +76,14 @@ def merge_evidences(
 
     Args:
         evidences: 各模型的提取证据（可为空或含失败模型）。
-        threshold: 置信度阈值；为 ``None`` 时使用
-            ``plugin_config.fanqie_similarity_threshold``。
+        threshold: 置信度阈值；为 ``None`` 时使用默认 0.9。
 
     Returns:
         融合后的证据。
 
     """
     valid = [ev for ev in evidences if ev is not None]
-    threshold = (
-        plugin_config.fanqie_similarity_threshold if threshold is None else threshold
-    )
+    threshold = _DEFAULT_THRESHOLD if threshold is None else threshold
     if not valid:
         from .models import ReadingEvidence
 
