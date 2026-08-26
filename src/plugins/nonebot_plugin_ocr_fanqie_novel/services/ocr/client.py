@@ -86,6 +86,7 @@ def _normalize_model(model: str) -> str:
 
 
 _MIN_POINT_COORDINATES = 2
+_BBOX_COORDINATE_COUNT = 4  # block_bbox 形如 [x1, y1, x2, y2]
 
 
 def _parse_polys(pruned_result: dict) -> list[list[list[int]]] | None:
@@ -130,6 +131,42 @@ def _pruned_result_to_page(pruned_result: dict) -> OCRPage:
             confidence = float(scores[index])
         box = boxes[index] if boxes and index < len(boxes) else None
         lines.append(OCRTextLine(text=text, confidence=confidence, box=box))
+    return OCRPage(lines=lines, raw=pruned_result)
+
+
+def _layout_result_to_page(pruned_result: dict) -> OCRPage:
+    """把 PaddleOCR-VL 系列布局解析结果规范化为 OCRPage。
+
+    VL 系列返回 ``layoutParsingResults[].prunedResult``，文本以布局块
+    ``parsing_res_list`` 组织（``block_content`` 为文本内容、``block_label``
+    为块类型）。本函数提取文本块内容作为文本行，跳过空内容块与图片类块，
+    保留块包围盒作为位置信息。
+
+    """
+    blocks = pruned_result.get("parsing_res_list", [])
+    lines: list[OCRTextLine] = []
+    if not isinstance(blocks, list):
+        return OCRPage(lines=lines, raw=pruned_result)
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        label = block.get("block_label")
+        content = block.get("block_content")
+        if not isinstance(content, str) or not content.strip():
+            continue  # 跳过图片/空内容块
+        if label in ("image", "header_image", "footer_image", "seal_image"):
+            continue
+        box = None
+        bbox = block.get("block_bbox")
+        if (
+            isinstance(bbox, list)
+            and len(bbox) == _BBOX_COORDINATE_COUNT
+            and all(isinstance(v, (int, float)) for v in bbox)
+        ):
+            # block_bbox 为 [x1, y1, x2, y2]，转为四角点
+            x1, y1, x2, y2 = (int(v) for v in bbox)
+            box = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+        lines.append(OCRTextLine(text=content.strip(), confidence=1.0, box=box))
     return OCRPage(lines=lines, raw=pruned_result)
 
 
@@ -334,9 +371,28 @@ class OCRClient:
 
         pages: list[OCRPage] = []
         for result in results:
+            if not isinstance(result, dict):
+                continue
+            # PaddleOCR-VL 系列：布局解析结果。
+            layout_results = result.get("layoutParsingResults", [])
+            if isinstance(layout_results, list) and layout_results:
+                for layout_result in layout_results:
+                    pruned = (
+                        layout_result.get("prunedResult")
+                        if isinstance(layout_result, dict)
+                        else None
+                    )
+                    if isinstance(pruned, dict):
+                        pages.append(_layout_result_to_page(pruned))
+                continue
+            # PP-OCR 系列：逐行识别结果。
             ocr_results = result.get("ocrResults", [])
             for ocr_result in ocr_results:
-                pruned = ocr_result.get("prunedResult")
+                pruned = (
+                    ocr_result.get("prunedResult")
+                    if isinstance(ocr_result, dict)
+                    else None
+                )
                 if isinstance(pruned, dict):
                     pages.append(_pruned_result_to_page(pruned))
 

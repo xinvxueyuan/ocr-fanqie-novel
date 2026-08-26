@@ -65,7 +65,7 @@ class Config(BaseModel):
     fanqie_ocr_api_token: str = ""
     fanqie_ocr_timeout: float = 15.0
     fanqie_ocr_poll_timeout: float = 120.0
-    fanqie_ocr_model: str = "PP-OCRv6"
+    fanqie_ocr_model: str = "PaddleOCR-VL-1.6"
     fanqie_verification_policy_path: str = ""
     fanqie_message_store_enabled: bool = True
     fanqie_message_store_summary_limit: int = 500

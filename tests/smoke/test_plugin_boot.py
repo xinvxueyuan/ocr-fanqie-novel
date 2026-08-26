@@ -30,7 +30,7 @@ def test_config_defaults() -> None:
     cfg = get_plugin_config(Config)
     assert cfg.fanqie_response_timeout > 0
     assert cfg.fanqie_max_attempts > 0
-    assert cfg.fanqie_ocr_model == "PP-OCRv6"
+    assert cfg.fanqie_ocr_model == "PaddleOCR-VL-1.6"
 
 
 def test_verification_matchers_registered() -> None:

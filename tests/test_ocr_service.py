@@ -22,6 +22,7 @@ from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.ocr import (
     recognize_file,
 )
 from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.ocr.client import (
+    _layout_result_to_page,
     _normalize_model,
     _pruned_result_to_page,
 )
@@ -136,6 +137,60 @@ def test_pruned_result_to_page_invalid() -> None:
     """缺少 rec_texts/rec_scores 列表时应抛出 OCRInvalidResponseError。"""
     with pytest.raises(OCRInvalidResponseError):
         _pruned_result_to_page({"model_settings": {}, "rec_texts": "not-a-list"})
+
+
+def _raw_layout_result() -> dict:
+    """构造一份模拟的 PaddleOCR-VL 布局解析 pruned_result。"""
+    return {
+        "page_count": None,
+        "width": 1440,
+        "height": 3168,
+        "parsing_res_list": [
+            {
+                "block_label": "text",
+                "block_content": "书评详情",
+                "block_bbox": [569, 199, 871, 288],
+                "block_id": 3,
+            },
+            {
+                "block_label": "image",
+                "block_content": "",
+                "block_bbox": [60, 195, 116, 283],
+                "block_id": 2,
+            },
+            {
+                "block_label": "text",
+                "block_content": "综漫：吉他雇佣兵无法找到归宿？",
+                "block_bbox": [103, 3036, 376, 3105],
+                "block_id": 15,
+            },
+            {
+                "block_label": "footer",
+                "block_content": "发表评论...",
+                "block_bbox": [0, 3100, 1440, 3168],
+                "block_id": 20,
+            },
+        ],
+    }
+
+
+def test_layout_result_to_page() -> None:
+    """VL 布局解析结果应提取文本块为文本行，跳过图片块。"""
+    page = _layout_result_to_page(_raw_layout_result())
+
+    texts = [line.text for line in page.lines]
+    assert texts == ["书评详情", "综漫：吉他雇佣兵无法找到归宿？", "发表评论..."]
+    # 图片块（无内容）被跳过
+    assert all(t != "" for t in texts)
+    # 文本块保留包围盒位置
+    assert page.lines[1].box == [[103, 3036], [376, 3036], [376, 3105], [103, 3105]]
+    assert page.raw["parsing_res_list"] is not None
+
+
+def test_layout_result_to_page_empty() -> None:
+    """无解析块时返回空 OCRPage。"""
+    page = _layout_result_to_page({"parsing_res_list": "not-a-list"})
+    assert page.lines == []
 
 
 def test_pruned_result_skips_non_string_lines() -> None:
