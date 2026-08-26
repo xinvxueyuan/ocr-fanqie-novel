@@ -47,9 +47,7 @@ def _has_index(table: str, index_name: str) -> bool:
     """检查指定索引是否已存在（幂等保护）。"""
     bind = op.get_bind()
     try:
-        rows = bind.execute(
-            sa.text(f"PRAGMA index_list({table})")
-        ).fetchall()
+        rows = bind.execute(sa.text(f"PRAGMA index_list({table})")).fetchall()
     except Exception:  # noqa: BLE001 - 表尚不存在视为无索引
         return False
     return any(row[1] == index_name for row in rows)

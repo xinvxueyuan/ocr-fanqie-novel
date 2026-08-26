@@ -164,17 +164,28 @@ async def announce_member_timeout(
     group_id: int,
     user_id: int,
 ) -> bool:
-    """FR7：成员响应超时后，在群内 @ 成员提示已超时并指引重审。"""
+    """FR7：成员响应超时后，在群内 @ 成员提示已超时并指引重审。
+
+    群消息发送成功后，额外私发一份给该新用户（便于其及时看到超时提示）。
+    私发失败/异常静默屏蔽——对方可能未开启临时会话或已屏蔽机器人，不影响
+    群消息主流程与返回结果。
+    """
     message = Message(MessageSegment.at(user_id)) + (
         " 验证超时未收到书评截图。如需继续验证，请在群内发送「重审」重试，"
         "或等待管理员处理。"
     )
+    ok = True
     try:
         await bot.send_group_msg(group_id=group_id, message=message)
     except ActionFailed:
         logger.warning("群内提示成员超时失败 group={} user={}", group_id, user_id)
-        return False
-    return True
+        ok = False
+    # 私发一份给新用户（尽力而为，失败静默）。
+    try:
+        await bot.send_private_msg(user_id=user_id, message=message)
+    except Exception:  # noqa: BLE001 - 私发失败需静默，不影响主流程
+        logger.debug("私发超时提示失败（可能未开启临时会话）：user={}", user_id)
+    return ok
 
 
 async def announce_kick_reminder(

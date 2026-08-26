@@ -439,8 +439,10 @@ async def test_handle_timeout_notifies_and_ends(
     kicks = [c for c in bot.calls if c[0] == "set_group_kick"]
     assert kicks == []
     privates = [c for c in bot.calls if c[0] == "send_private_msg"]
-    assert len(privates) == 1
-    assert "/keep" in str(privates[0][1]["message"])
+    assert len(privates) >= 1
+    admin_notices = [c for c in privates if c[1].get("user_id") == 90001]
+    assert len(admin_notices) == 1
+    assert "/keep" in str(admin_notices[0][1]["message"])
     record = get_session_store().get("123", "10001")
     assert record is not None
     assert record.status == "awaiting_admin"
