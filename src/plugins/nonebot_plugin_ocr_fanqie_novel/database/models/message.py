@@ -92,6 +92,7 @@ class AuditRecord(Model):
     bot_id: Mapped[str] = mapped_column(String(128), index=True)
     audit_type: Mapped[str] = mapped_column(String(64), index=True)
     event_type: Mapped[str] = mapped_column(String(128), index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
     data_summary: Mapped[str | None] = mapped_column(Text)
     result_summary: Mapped[str | None] = mapped_column(Text)
     exception_summary: Mapped[str | None] = mapped_column(Text)
@@ -120,6 +121,7 @@ class VerificationEventRecord(Model):
     user_id: Mapped[str] = mapped_column(String(128), index=True)
     event_type: Mapped[str] = mapped_column(String(64), index=True)
     success: Mapped[bool | None] = mapped_column(Boolean, index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

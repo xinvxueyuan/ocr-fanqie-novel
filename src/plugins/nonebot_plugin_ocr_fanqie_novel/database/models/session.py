@@ -71,6 +71,7 @@ class VerificationSession(Model):
     review_count: Mapped[int] = mapped_column(Integer, default=0)
     is_muted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     last_extracted: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    trace_id: Mapped[str | None] = mapped_column(String(64), default=None, index=True)
     trigger_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utc_now,

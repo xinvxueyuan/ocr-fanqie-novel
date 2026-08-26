@@ -12,6 +12,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import uuid
 
 from nonebot import logger
 
@@ -42,6 +43,7 @@ class SessionRecord:
     is_muted: bool = False
     last_extracted: dict | None = None
     status: str = "waiting"
+    trace_id: str | None = None
 
     def to_db_dict(self) -> dict:
         """转换为仓库层 upsert 所需的字段。"""
@@ -59,7 +61,13 @@ class SessionRecord:
             "last_extracted": self.last_extracted,
             "trigger_time": self.trigger_time,
             "expires_at": self.expires_at,
+            "trace_id": self.trace_id,
         }
+
+
+def _new_trace_id() -> str:
+    """生成一次验证流程的事务追踪标识（全局唯一、不含连字符）。"""
+    return uuid.uuid4().hex
 
 
 class SessionStore:
@@ -169,6 +177,7 @@ class SessionStore:
             protocol_id=protocol_id,
             trigger_time=now,
             expires_at=expires_at,
+            trace_id=_new_trace_id(),
         )
         self._sessions[key] = record
         self._schedule_timeout(key)

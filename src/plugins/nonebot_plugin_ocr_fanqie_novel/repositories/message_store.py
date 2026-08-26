@@ -39,6 +39,7 @@ class AuditEvent:
     protocol_id: str | None = None
     framework_id: str = "nonebot"
     audit_type: str = "api_call"
+    trace_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,7 @@ class VerificationEventWrite:
     protocol_id: str | None = None
     success: bool | None = None
     detail: dict[str, Any] = field(default_factory=dict)
+    trace_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +188,7 @@ async def record_api_call(
         bot_id=event.bot_id,
         audit_type=event.audit_type,
         event_type=event.api_name,
+        trace_id=event.trace_id,
         data_summary=event.data_summary,
         result_summary=event.result_summary,
         exception_summary=event.exception_summary,
@@ -209,6 +212,7 @@ async def record_verification_event(
         user_id=event.user_id,
         event_type=event.event_type,
         success=event.success,
+        trace_id=event.trace_id,
         detail=event.detail or None,
         created_at=datetime.now(UTC),
     )
@@ -225,6 +229,7 @@ async def upsert_verification_session(
     last_extracted: dict[str, Any] | None = None,
     trigger_time: datetime | None = None,
     expires_at: datetime | None = None,
+    trace_id: str | None = None,
 ) -> VerificationSession:
     """按 (group_id, user_id) upsert 验证会话。"""
     now = datetime.now(UTC)
@@ -241,6 +246,7 @@ async def upsert_verification_session(
         "review_count": review_count,
         "is_muted": is_muted,
         "last_extracted": last_extracted,
+        "trace_id": trace_id,
         "trigger_time": trigger_time or now,
         "expires_at": expires_at,
         "created_at": now,

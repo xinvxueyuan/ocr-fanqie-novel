@@ -159,13 +159,15 @@ async def handle_submission(
     if not image_url:
         return await _handle_download_failure(group_id, user_id)
 
-    evidence = await _recognize_and_extract(image_url, group_id)
+    evidence = await _recognize_and_extract(image_url, group_id, record.trace_id)
     if evidence is None:
         return await _handle_ocr_failure(bot, group_id, user_id)
     await _persist_last_extracted(record, evidence)
 
     if not evidence.is_sufficient:
-        logger.info("信息不足 group={} user={}", group_id, user_id)
+        logger.info(
+            "信息不足 trace={} group={} user={}", record.trace_id, group_id, user_id
+        )
         return await _handle_insufficient(bot, group_id, user_id)
 
     policy_check = policy.get_policy().check(evidence, group_id)
@@ -188,6 +190,7 @@ async def handle_submission(
 async def _recognize_and_extract(
     image_url: str,
     group_id: int,
+    trace_id: str | None = None,
 ) -> ReadingEvidence | None:
     """用多模型并行识别图片，融合各模型提取结果。
 
@@ -196,6 +199,7 @@ async def _recognize_and_extract(
     Args:
         image_url: 图片 URL。
         group_id: 群号（用于取作者白名单书名）。
+        trace_id: 事务追踪标识（写入日志便于追溯）。
 
     Returns:
         融合后的证据；全部模型失败返回 ``None``。
@@ -205,10 +209,10 @@ async def _recognize_and_extract(
     try:
         results = await recognize_image_url_multi(image_url, models=models)
     except OCRError as exc:
-        logger.warning("OCR 识别失败: {}", exc)
+        logger.warning("OCR 识别失败 trace={}: {}", trace_id, exc)
         return None
     if not results:
-        logger.warning("全部 OCR 模型识别失败")
+        logger.warning("全部 OCR 模型识别失败 trace={}", trace_id)
         return None
 
     known_books = _group_known_books(group_id)
@@ -220,8 +224,9 @@ async def _recognize_and_extract(
         )
         evidences.append(ev)
         logger.debug(
-            "模型 {} 提取: self={} book={} author={}",
+            "模型 {} trace={} 提取: self={} book={} author={}",
             model,
+            trace_id,
             ev.is_self_review,
             ev.book_name.value if ev.book_name else None,
             ev.author.value if ev.author else None,
@@ -535,6 +540,7 @@ async def _increment_retry(
     )
 
     remaining = plugin_config.fanqie_max_attempts - updated.retry_count
+    trace = updated.trace_id
     if remaining > 0:
         base = f"{kind}，请重新发送清晰的截图（剩余尝试次数：{remaining}）。"
         if kind == "信息不足":
@@ -542,11 +548,13 @@ async def _increment_retry(
                 "请确认是在**点开自己书评的详情页面**后截图（书评详情页顶部有"
                 "「书评详情」标题，并带「我」徽章），而不是列表页或他人书评页。"
             )
-        return base
+        return f"{base}{_trace_suffix(trace)}"
 
     member = await actions.get_member_info(bot, group_id, user_id)
     if member is None:
-        logger.info("重试耗尽：成员 {} 已不在群 {} 中，直接结束", user_id, group_id)
+        logger.info(
+            "重试耗尽 trace={} 成员 {} 已不在群 {} 中", trace, user_id, group_id
+        )
         await _persist_session(store.end(str(group_id), str(user_id), status="failed"))
         await actions.notify_admins(
             bot,
@@ -556,10 +564,12 @@ async def _increment_retry(
             message=(
                 f"用户 {user_id} 在群 {group_id} 连续 "
                 f"{plugin_config.fanqie_max_attempts} 次识别失败，但已不在群聊中。"
+                f"{_trace_suffix(trace)}"
             ),
         )
         return (
             f"连续 {plugin_config.fanqie_max_attempts} 次识别失败，已通知管理员处理。"
+            f"{_trace_suffix(trace)}"
         )
 
     await _await_admin_decision(
@@ -569,9 +579,13 @@ async def _increment_retry(
         reason=(
             f"用户 {user_id} 在群 {group_id} 连续 "
             f"{plugin_config.fanqie_max_attempts} 次识别失败"
+            f"{_trace_suffix(trace)}"
         ),
     )
-    return f"连续 {plugin_config.fanqie_max_attempts} 次识别失败，已通知管理员处理。"
+    return (
+        f"连续 {plugin_config.fanqie_max_attempts} 次识别失败，已通知管理员处理。"
+        f"{_trace_suffix(trace)}"
+    )
 
 
 async def _handle_pass(
@@ -606,9 +620,17 @@ async def _handle_reject(
     """FR6：拒绝验证，结束会话并通知管理员决策。"""
     store = get_session_store()
 
+    cur = store.get(str(group_id), str(user_id))
+    trace = cur.trace_id if cur else None
+
     member = await actions.get_member_info(bot, group_id, user_id)
     if member is None:
-        logger.info("拒绝处理：成员 {} 已不在群 {} 中，仅结束会话", user_id, group_id)
+        logger.info(
+            "拒绝处理 trace={} 成员 {} 已不在群 {} 中",
+            trace,
+            user_id,
+            group_id,
+        )
         ended = store.end(str(group_id), str(user_id), status="rejected")
         await _persist_session(ended)
         await _record_event(
@@ -625,9 +647,10 @@ async def _handle_reject(
             message=(
                 f"用户 {user_id} 在群 {group_id} 未通过验证（{reason}），"
                 "但已不在群聊中。"
+                f"{_trace_suffix(trace)}"
             ),
         )
-        return "验证未通过。"
+        return f"验证未通过。{_trace_suffix(trace)}"
 
     await _record_event(
         store.get(str(group_id), str(user_id)),
@@ -639,10 +662,13 @@ async def _handle_reject(
         bot,
         group_id=str(group_id),
         user_id=str(user_id),
-        reason=(f"用户 {user_id} 在群 {group_id} 未通过验证（{reason}）"),
+        reason=(
+            f"用户 {user_id} 在群 {group_id} 未通过验证（{reason}）"
+            f"{_trace_suffix(trace)}"
+        ),
         evidence=evidence,
     )
-    return "验证未通过，已通知管理员处理。"
+    return f"验证未通过，已通知管理员处理。{_trace_suffix(trace)}"
 
 
 async def _await_admin_decision(
@@ -802,6 +828,13 @@ def _fallback_deadline(status: str, now: datetime) -> datetime:
     return now + timedelta(seconds=plugin_config.fanqie_response_timeout)
 
 
+def _trace_suffix(trace_id: str | None) -> str:
+    """返回拼接在用户可见消息末尾的追踪标识后缀（便于入口追溯）。"""
+    if not trace_id:
+        return ""
+    return f"（追踪ID: {trace_id}）"
+
+
 async def _persist_session(record: SessionRecord | None) -> None:
     """把会话记录写入数据库（尽力而为）。"""
     if record is None or not plugin_config.fanqie_message_store_enabled:
@@ -825,6 +858,7 @@ async def _persist_session(record: SessionRecord | None) -> None:
                 last_extracted=record.last_extracted,
                 trigger_time=record.trigger_time,
                 expires_at=record.expires_at,
+                trace_id=record.trace_id,
             )
     except Exception:  # noqa: BLE001 - 持久化失败不阻断主流程
         logger.exception("持久化验证会话失败: {}", (record.group_id, record.user_id))
@@ -845,6 +879,7 @@ async def _record_event(
     """
     if record is None or not plugin_config.fanqie_message_store_enabled:
         return
+    trace = record.trace_id
     try:
         async with get_session() as session:
             await repository.record_verification_event(
@@ -859,10 +894,21 @@ async def _record_event(
                     event_type=event_type,
                     success=success,
                     detail=detail or None,
+                    trace_id=trace,
                 ),
             )
     except Exception:  # noqa: BLE001 - 事件记录失败不阻断主流程
-        logger.exception("记录验证事件失败: {}", event_type)
+        logger.exception("记录验证事件失败: {} trace={}", event_type, trace)
+    if trace:
+        logger.info(
+            "验证事件 trace={} type={} success={} group={} user={} detail={}",
+            trace,
+            event_type,
+            success,
+            record.group_id,
+            record.user_id,
+            detail,
+        )
 
 
 async def _persist_last_extracted(
