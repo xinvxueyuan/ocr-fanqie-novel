@@ -88,6 +88,9 @@ def _normalize_model(model: str) -> str:
 _MIN_POINT_COORDINATES = 2
 _BBOX_COORDINATE_COUNT = 4  # block_bbox 形如 [x1, y1, x2, y2]
 
+# VL 布局结果中与读者名合并成单块的「我」徽章标识。
+_layout_self_marker = "我"
+
 
 def _parse_polys(pruned_result: dict) -> list[list[list[int]]] | None:
     """从 pruned_result 提取每个文本框的四角坐标。"""
@@ -134,6 +137,27 @@ def _pruned_result_to_page(pruned_result: dict) -> OCRPage:
     return OCRPage(lines=lines, raw=pruned_result)
 
 
+def _split_self_marker(text: str) -> list[str]:
+    """把 VL 布局块文本中末尾独立的「我」徽章拆成单独行。
+
+    VL 布局合并可能把读者名与「我」徽章合成单个块（如 ``马钧 我``），
+    而提取器要求 ``text.strip() == \"我\"`` 的独立行来判定本人书评。
+    本函数识别以空白结尾分隔的独立「我」并拆分。
+
+    Args:
+        text: 布局块文本内容。
+
+    Returns:
+        拆分后的文本行列表；无「我」徽章时原样返回单行。
+
+    """
+    if text.endswith(_layout_self_marker):
+        name = text[: -len(_layout_self_marker)].rstrip()
+        if name:
+            return [name, _layout_self_marker]
+    return [text]
+
+
 def _layout_result_to_page(pruned_result: dict) -> OCRPage:
     """把 PaddleOCR-VL 系列布局解析结果规范化为 OCRPage。
 
@@ -166,7 +190,11 @@ def _layout_result_to_page(pruned_result: dict) -> OCRPage:
             # block_bbox 为 [x1, y1, x2, y2]，转为四角点
             x1, y1, x2, y2 = (int(v) for v in bbox)
             box = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
-        lines.append(OCRTextLine(text=content.strip(), confidence=1.0, box=box))
+        # VL 布局合并可能把「读者名」与「我」徽章合成一个块（如
+        # ``马钧 我``）。拆分为独立两行，使「我」徽章可被提取器识别，
+        # 否则 is_self_review 会误判为 False 导致拒绝。
+        for piece in _split_self_marker(content.strip()):
+            lines.append(OCRTextLine(text=piece, confidence=1.0, box=box))
     return OCRPage(lines=lines, raw=pruned_result)
 
 
