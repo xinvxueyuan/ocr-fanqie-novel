@@ -35,10 +35,12 @@ from ......handle.qq.commands.verification import (
     reload_config_cmd,
     review_cmd,
     verify_cmd,
+    whitelist_cmd,
 )
 from ......services.verification import (
     PolicyConfigError,
     admin_decision,
+    get_policy,
     get_session_store,
     handle_private_submission,
     handle_submission,
@@ -408,6 +410,30 @@ async def on_admin_pending_list(
             left = f"{hours} 小时 {minutes} 分" if hours else f"{minutes} 分"
             lines.append(f"QQ {record.user_id}（剩余 {left}，/keep 或 /kick）")
         reply = f"等待管理员决策的成员 {len(records)} 人：\n" + "\n".join(lines)
+    await bot.send_group_msg(group_id=event.group_id, message=reply)
+
+
+@_register(whitelist_cmd)
+async def on_whitelist_view(
+    bot: OneBot11Bot,
+    event: GroupMessageEvent,
+) -> None:
+    """查看验证白名单：展示当前群已配置的作者与作品列表。"""
+    if not _is_admin_user(event):
+        return
+    policy = get_policy()
+    group = policy.group_policy(event.group_id)
+    if group is None or not group.authors:
+        reply = "本群未配置作者白名单（宽松验证，仅校验截图信息完整）。"
+    else:
+        lines: list[str] = []
+        for entry in group.authors:
+            books = "、".join(sorted(entry.books)) if entry.books else "（未配置作品）"
+            lines.append(f"作者：{entry.name}\n  作品：{books}")
+        reply = (
+            f"群 {event.group_id} 验证白名单 {len(group.authors)} 位作者：\n"
+            + "\n\n".join(lines)
+        )
     await bot.send_group_msg(group_id=event.group_id, message=reply)
 
 

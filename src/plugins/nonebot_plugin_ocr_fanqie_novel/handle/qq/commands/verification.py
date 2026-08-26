@@ -106,6 +106,15 @@ pending_list_cmd = on_command(
     block=True,
 )
 
+# 查看白名单：展示当前群已配置的作者与作品列表。
+whitelist_cmd = on_command(
+    "查看白名单",
+    aliases={"白名单", "作者白名单", "/白名单"},
+    permission=SUPERUSER,
+    priority=5,
+    block=True,
+)
+
 # 重审：普通成员重审自己（限次数），管理员可 @ 任意普通成员重审（不限次数）。
 # 不带 permission 限定——权限与次数在处理器内按发起者身份判断。
 review_cmd = on_command(
@@ -130,4 +139,5 @@ __all__ = [
     "reload_config_cmd",
     "review_cmd",
     "verify_cmd",
+    "whitelist_cmd",
 ]

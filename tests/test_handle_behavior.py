@@ -802,3 +802,76 @@ async def test_private_submission_silent_without_waiting(app: App) -> None:
         )  # type: ignore[call-arg]
         # 无待验证会话：expect none——不应有任何 send_private_msg 调用
         ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
+async def test_whitelist_cmd_shows_authors(app: App) -> None:
+    """管理员 查看白名单 应列出当前群配置的作者与作品。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        GroupMessageEvent,
+        Message,
+        MessageSegment,
+    )
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        policy as policy_module,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification.policy import (
+        AuthorEntry,
+        GroupPolicy,
+        VerificationPolicy,
+    )
+
+    async with app.test_matcher(cmd_module.whitelist_cmd) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupMessageEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="message",
+            message_type="group",
+            sub_type="normal",
+            message_id=9,
+            group_id=_GROUP_ID,
+            user_id=1330509996,
+            anonymous=None,
+            sender={"user_id": 1330509996, "nickname": "管理", "role": "owner"},
+            raw_message="查看白名单",
+            message=Message([MessageSegment.text("查看白名单")]),
+            font=0,
+        )  # type: ignore[call-arg]
+        monkeypatch = _make_monkeypatch()
+        monkeypatch.setattr(
+            policy_module,
+            "_policy_cache",
+            VerificationPolicy(
+                require_all=False,
+                required_elements=frozenset({"book_name", "author"}),
+                groups={
+                    _GROUP_ID: GroupPolicy(
+                        group_id=_GROUP_ID,
+                        authors=(
+                            AuthorEntry(
+                                name="百舸川掮客",
+                                books=frozenset({"乐队少女神人多，急需棍棒教育"}),
+                            ),
+                        ),
+                    ),
+                },
+            ),
+        )
+        ctx.should_call_api(
+            "send_group_msg",
+            {
+                "group_id": _GROUP_ID,
+                "message": "群 123 验证白名单 1 位作者：\n作者：百舸川掮客\n  作品：乐队少女神人多，急需棍棒教育",
+            },
+        )
+        ctx.receive_event(bot, event)
+
+
+def _make_monkeypatch() -> Any:
+    """构造一个测试用 MonkeyPatch（避免逃逸到测试函数签名）。"""
+    from pytest import MonkeyPatch
+
+    return MonkeyPatch()
