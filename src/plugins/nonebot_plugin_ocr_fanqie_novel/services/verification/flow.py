@@ -536,7 +536,13 @@ async def _increment_retry(
 
     remaining = plugin_config.fanqie_max_attempts - updated.retry_count
     if remaining > 0:
-        return f"{kind}，请重新发送清晰的截图（剩余尝试次数：{remaining}）。"
+        base = f"{kind}，请重新发送清晰的截图（剩余尝试次数：{remaining}）。"
+        if kind == "信息不足":
+            base += (
+                "请确认是在**点开自己书评的详情页面**后截图（书评详情页顶部有"
+                "「书评详情」标题，并带「我」徽章），而不是列表页或他人书评页。"
+            )
+        return base
 
     member = await actions.get_member_info(bot, group_id, user_id)
     if member is None:
