@@ -162,10 +162,13 @@ async def test_handle_submission_passes(
 ) -> None:
     """有效截图应通过验证并发送欢迎消息。"""
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_with_evidence()
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_evidence() for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
 
     bot: Any = FakeBot()
     await start_verification(bot, group_id=123, user_id=10001)
@@ -189,10 +192,11 @@ async def test_handle_submission_insufficient_retries(
 ) -> None:
     """信息不足应提示重试并计数，不直接踢出。"""
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_empty()
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {_m: _ocr_result_empty() for _m in (models or ["PaddleOCR-VL-1.6"])}
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
 
     bot: Any = FakeBot()
     await start_verification(bot, group_id=123, user_id=10001)
@@ -217,10 +221,13 @@ async def test_handle_submission_other_review_retries(
 ) -> None:
     """他人书评（无「我」徽章）应视为信息不足并重试。"""
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_other_review()
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_other_review() for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
 
     bot: Any = FakeBot()
     await start_verification(bot, group_id=123, user_id=10001)
@@ -271,10 +278,14 @@ async def test_handle_submission_reject_notifies_admin(
         ),
     )
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_with_author("李四")
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_author("李四")
+            for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
 
     bot: Any = FakeBot()
     await start_verification(bot, group_id=123, user_id=10001)
@@ -326,10 +337,13 @@ async def test_handle_submission_policy_rejects_missing_element(
         ),
     )
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_with_evidence()
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_evidence() for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
 
     bot: Any = FakeBot()
     await start_verification(bot, group_id=123, user_id=10001)
@@ -376,10 +390,14 @@ async def test_handle_submission_policy_rejects_author(
         ),
     )
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_with_author("李四")
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_author("李四")
+            for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
 
     bot: Any = FakeBot()
     await start_verification(bot, group_id=123, user_id=10001)
@@ -524,10 +542,13 @@ async def test_handle_submission_member_already_left(
 ) -> None:
     """成员已退群时，提交截图应直接结束会话。"""
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_with_evidence()
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_evidence() for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
 
     bot: Any = FakeBot(in_group=False)
     get_session_store().start(
@@ -1038,10 +1059,13 @@ async def test_flow_records_pass_event(
 ) -> None:
     """通过验证应记录 verify.pass 事件。"""
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_with_evidence()
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_evidence() for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
     bot: Any = FakeBot()
     recorded = await _record_events(monkeypatch, bot)
     await start_verification(bot, group_id=123, user_id=10001)
@@ -1116,10 +1140,13 @@ async def test_private_submission_single_group(
         handle_private_submission,
     )
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_with_evidence()
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_evidence() for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
     bot: Any = FakeBot()
     await start_verification(bot, group_id=123, user_id=10001)
 
@@ -1141,7 +1168,11 @@ async def test_private_submission_no_waiting(
     )
 
     monkeypatch.setattr(
-        flow_module, "recognize_image_url", lambda _u: _ocr_result_with_evidence()
+        flow_module,
+        "recognize_image_url_multi",
+        lambda _u, *, _models=None: {
+            _m: _ocr_result_with_evidence() for _m in (_models or ["PaddleOCR-VL-1.6"])
+        },
     )
     bot: Any = FakeBot()
     reply = await handle_private_submission(
@@ -1160,7 +1191,11 @@ async def test_private_submission_multi_group_asks_selection(
     )
 
     monkeypatch.setattr(
-        flow_module, "recognize_image_url", lambda _u: _ocr_result_with_evidence()
+        flow_module,
+        "recognize_image_url_multi",
+        lambda _u, *, _models=None: {
+            _m: _ocr_result_with_evidence() for _m in (_models or ["PaddleOCR-VL-1.6"])
+        },
     )
     store = get_session_store()
     store.start(
@@ -1196,10 +1231,13 @@ async def test_private_submission_multi_group_with_target(
         handle_private_submission,
     )
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
-        return _ocr_result_with_evidence()
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_evidence() for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
     store = get_session_store()
     store.start(
         group_id="123",

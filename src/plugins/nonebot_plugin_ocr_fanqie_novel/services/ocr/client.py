@@ -138,11 +138,11 @@ def _pruned_result_to_page(pruned_result: dict) -> OCRPage:
 
 
 def _split_self_marker(text: str) -> list[str]:
-    """把 VL 布局块文本中末尾独立的「我」徽章拆成单独行。
+    r"""把 VL 布局块文本中末尾独立的「我」徽章拆成单独行。
 
     VL 布局合并可能把读者名与「我」徽章合成单个块（如 ``马钧 我``），
-    而提取器要求 ``text.strip() == \"我\"`` 的独立行来判定本人书评。
-    本函数识别以空白结尾分隔的独立「我」并拆分。
+    而提取器要求独立的「我」徽章行来判定本人书评。本函数识别以空白
+    结尾分隔的独立「我」并拆分。
 
     Args:
         text: 布局块文本内容。
@@ -159,14 +159,22 @@ def _split_self_marker(text: str) -> list[str]:
 
 
 def _layout_result_to_page(pruned_result: dict) -> OCRPage:
-    """把 PaddleOCR-VL 系列布局解析结果规范化为 OCRPage。
+    """把 PP-StructureV3 / PaddleOCR-VL 系列布局解析结果规范化为 OCRPage。
 
-    VL 系列返回 ``layoutParsingResults[].prunedResult``，文本以布局块
-    ``parsing_res_list`` 组织（``block_content`` 为文本内容、``block_label``
-    为块类型）。本函数提取文本块内容作为文本行，跳过空内容块与图片类块，
-    保留块包围盒作为位置信息。
+    布局解析结果有两种文本呈现：
+
+    - ``overall_ocr_res``（PP-StructureV3 结构化输出）：逐行识别结果，
+      结构同 ``prunedResult``（``rec_texts``/``rec_scores``/``rec_polys``），
+      时间精确、含逐行坐标，优先采用；
+    - ``parsing_res_list``（PaddleOCR-VL 布局）：以布局块组织
+      （``block_content`` 为文本、``block_label`` 为类型），块可能合并
+      多行，作为回退。
 
     """
+    overall = pruned_result.get("overall_ocr_res")
+    if isinstance(overall, dict) and isinstance(overall.get("rec_texts"), list):
+        return _pruned_result_to_page(overall)
+
     blocks = pruned_result.get("parsing_res_list", [])
     lines: list[OCRTextLine] = []
     if not isinstance(blocks, list):
@@ -193,8 +201,10 @@ def _layout_result_to_page(pruned_result: dict) -> OCRPage:
         # VL 布局合并可能把「读者名」与「我」徽章合成一个块（如
         # ``马钧 我``）。拆分为独立两行，使「我」徽章可被提取器识别，
         # 否则 is_self_review 会误判为 False 导致拒绝。
-        for piece in _split_self_marker(content.strip()):
-            lines.append(OCRTextLine(text=piece, confidence=1.0, box=box))
+        lines.extend(
+            OCRTextLine(text=piece, confidence=1.0, box=box)
+            for piece in _split_self_marker(content.strip())
+        )
     return OCRPage(lines=lines, raw=pruned_result)
 
 
@@ -373,12 +383,20 @@ class OCRClient:
         *,
         file_path: str | None = None,
         file_url: str | None = None,
+        model: str | None = None,
     ) -> OCRResult:
-        """向云端提交识别任务并返回规范化结果。"""
+        """向云端提交识别任务并返回规范化结果。
+
+        Args:
+            file_path: 本地图片文件路径。
+            file_url: 可公开访问的图片地址。
+            model: 使用的 PaddleOCR 模型名；为 ``None`` 时使用配置默认。
+
+        """
         if file_path is None and file_url is None:
             raise ValueError("file_path 与 file_url 必须提供其一")
 
-        model = _normalize_model(plugin_config.fanqie_ocr_model)
+        model = _normalize_model(model or plugin_config.fanqie_ocr_model)
         logger.debug("提交 OCR 任务: model=%s file_url=%s", model, bool(file_url))
 
         if self._client is not None:
@@ -433,29 +451,68 @@ class OCRClient:
         )
         return result_model
 
-    async def recognize_path(self, path: str | Path) -> OCRResult:
+    async def recognize_path(
+        self,
+        path: str | Path,
+        *,
+        model: str | None = None,
+    ) -> OCRResult:
         """识别本地图片文件。
 
         Args:
             path: 本地图片文件路径。
+            model: 使用的 PaddleOCR 模型名（默认配置）。
 
         Returns:
             规范化的识别结果。
 
         """
-        return await self._recognize(file_path=str(path))
+        return await self._recognize(file_path=str(path), model=model)
 
-    async def recognize_url(self, url: str) -> OCRResult:
+    async def recognize_url(
+        self,
+        url: str,
+        *,
+        model: str | None = None,
+    ) -> OCRResult:
         """识别图片 URL。
 
         Args:
             url: 可公开访问的图片地址。
+            model: 使用的 PaddleOCR 模型名（默认配置）。
 
         Returns:
             规范化的识别结果。
 
         """
-        return await self._recognize(file_url=url)
+        return await self._recognize(file_url=url, model=model)
+
+    async def recognize_multi_url(
+        self,
+        url: str,
+        *,
+        models: list[str] | tuple[str, ...],
+    ) -> dict[str, OCRResult]:
+        """用多个模型并行识别同一图片 URL。
+
+        各模型独立提交并获取规范化结果，返回 ``{model: OCRResult}`` 映射。
+        用于多模型融合（逐字段取置信度最高者）。
+
+        Args:
+            url: 可公开访问的图片地址。
+            models: 依次使用的 PaddleOCR 模型名列表。
+
+        Returns:
+            模型名到识别结果的映射。
+
+        """
+        results: dict[str, OCRResult] = {}
+        for model in models:
+            try:
+                results[model] = await self._recognize(file_url=url, model=model)
+            except OCRError as exc:
+                logger.warning("模型 %s 识别失败，跳过: %s", model, exc)
+        return results
 
     async def recognize_bytes(self, data: bytes, *, suffix: str = ".png") -> OCRResult:
         """识别内存中的图片字节。

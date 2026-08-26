@@ -66,6 +66,12 @@ class Config(BaseModel):
     fanqie_ocr_timeout: float = 15.0
     fanqie_ocr_poll_timeout: float = 120.0
     fanqie_ocr_model: str = "PaddleOCR-VL-1.6"
+    fanqie_similarity_threshold: float = 0.9
+    fanqie_ocr_models: tuple[str, ...] = (
+        "PaddleOCR-VL-1.6",
+        "PP-OCRv6",
+        "PP-StructureV3",
+    )
     fanqie_verification_policy_path: str = ""
     fanqie_message_store_enabled: bool = True
     fanqie_message_store_summary_limit: int = 500

@@ -47,17 +47,40 @@ async def recognize_file(path: str | Path) -> OCRResult:
     return await get_ocr_client().recognize_path(path)
 
 
-async def recognize_image_url(url: str) -> OCRResult:
+async def recognize_image_url(
+    url: str,
+    *,
+    model: str | None = None,
+) -> OCRResult:
     """识别图片 URL。
 
     Args:
         url: 可公开访问的图片地址。
+        model: 使用的 PaddleOCR 模型名（默认配置）。
 
     Returns:
         规范化的 OCR 识别结果。
 
     """
-    return await get_ocr_client().recognize_url(url)
+    return await get_ocr_client().recognize_url(url, model=model)
+
+
+async def recognize_image_url_multi(
+    url: str,
+    *,
+    models: list[str] | tuple[str, ...],
+) -> dict[str, OCRResult]:
+    """用多个模型并行识别图片 URL，返回模型名到结果的映射。
+
+    Args:
+        url: 可公开访问的图片地址。
+        models: 依次使用的 PaddleOCR 模型名列表。
+
+    Returns:
+        模型名到 OCR 结果的映射。
+
+    """
+    return await get_ocr_client().recognize_multi_url(url, models=models)
 
 
 async def recognize_image_bytes(data: bytes, *, suffix: str = ".png") -> OCRResult:
@@ -86,4 +109,5 @@ __all__ = [
     "recognize_file",
     "recognize_image_bytes",
     "recognize_image_url",
+    "recognize_image_url_multi",
 ]

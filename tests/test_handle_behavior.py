@@ -442,7 +442,8 @@ async def test_image_submission_handles_pending_member_image(
         },
     )
 
-    async def fake_recognize(url: str) -> Any:  # noqa: ARG001
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
         from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.ocr import (
             OCRPage,
             OCRResult,
@@ -452,7 +453,7 @@ async def test_image_submission_handles_pending_member_image(
         def _box(y: int) -> list[list[int]]:
             return [[0, y], [100, y], [100, y + 20], [0, y + 20]]
 
-        return OCRResult(
+        ocr = OCRResult(
             job_id="job-pass",
             pages=[
                 OCRPage(
@@ -474,6 +475,7 @@ async def test_image_submission_handles_pending_member_image(
                 )
             ],
         )
+        return dict.fromkeys(models or ["PaddleOCR-VL-1.6"], ocr)
 
     async def fake_get_member_info(
         bot: Any,
@@ -498,7 +500,7 @@ async def test_image_submission_handles_pending_member_image(
         async def send_group_msg(self, **kwargs: Any) -> None:
             self.calls.append(("send_group_msg", kwargs))
 
-    monkeypatch.setattr(flow_module, "recognize_image_url", fake_recognize)
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
     monkeypatch.setattr(actions, "get_member_info", fake_get_member_info)
 
     _start_session()

@@ -23,6 +23,7 @@ from .service import (
     recognize_file,
     recognize_image_bytes,
     recognize_image_url,
+    recognize_image_url_multi,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "recognize_file",
     "recognize_image_bytes",
     "recognize_image_url",
+    "recognize_image_url_multi",
 ]

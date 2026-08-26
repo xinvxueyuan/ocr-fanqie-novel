@@ -21,9 +21,9 @@ from ...core.config import plugin_config
 from ...repositories import message_store as repository
 from ...services.ocr import (
     OCRError,
-    recognize_image_url,
+    recognize_image_url_multi,
 )
-from . import actions, extractor, judgment, policy
+from . import actions, extractor, fusion, judgment, policy
 from .session import SessionRecord, get_session_store
 
 if TYPE_CHECKING:
@@ -159,16 +159,9 @@ async def handle_submission(
     if not image_url:
         return await _handle_download_failure(group_id, user_id)
 
-    try:
-        result = await recognize_image_url(image_url)
-    except OCRError as exc:
-        logger.warning("OCR 识别失败 group={} user={}: {}", group_id, user_id, exc)
+    evidence = await _recognize_and_extract(image_url, group_id)
+    if evidence is None:
         return await _handle_ocr_failure(bot, group_id, user_id)
-
-    evidence = extractor.extract_reading_evidence(
-        result,
-        known_books=_group_known_books(group_id),
-    )
     await _persist_last_extracted(record, evidence)
 
     if not evidence.is_sufficient:
@@ -190,6 +183,55 @@ async def handle_submission(
         reject_reason,
     )
     return await _handle_reject(bot, group_id, user_id, evidence, reject_reason)
+
+
+async def _recognize_and_extract(
+    image_url: str,
+    group_id: int,
+) -> ReadingEvidence | None:
+    """用多模型并行识别图片，融合各模型提取结果。
+
+    所有模型都失败时返回 ``None``。
+
+    Args:
+        image_url: 图片 URL。
+        group_id: 群号（用于取作者白名单书名）。
+
+    Returns:
+        融合后的证据；全部模型失败返回 ``None``。
+
+    """
+    models = list(plugin_config.fanqie_ocr_models) or [_default_ocr_model()]
+    try:
+        results = await recognize_image_url_multi(image_url, models=models)
+    except OCRError as exc:
+        logger.warning("OCR 识别失败: {}", exc)
+        return None
+    if not results:
+        logger.warning("全部 OCR 模型识别失败")
+        return None
+
+    known_books = _group_known_books(group_id)
+    evidences: list[ReadingEvidence] = []
+    for model, result in results.items():
+        ev = extractor.extract_reading_evidence(
+            result,
+            known_books=known_books,
+        )
+        evidences.append(ev)
+        logger.debug(
+            "模型 {} 提取: self={} book={} author={}",
+            model,
+            ev.is_self_review,
+            ev.book_name.value if ev.book_name else None,
+            ev.author.value if ev.author else None,
+        )
+    return fusion.merge_evidences(evidences)
+
+
+def _default_ocr_model() -> str:
+    """返回配置的主 OCR 模型名。"""
+    return plugin_config.fanqie_ocr_model or "PaddleOCR-VL-1.6"
 
 
 async def handle_private_submission(
