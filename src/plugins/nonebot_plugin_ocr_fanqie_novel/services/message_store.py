@@ -69,7 +69,7 @@ async def cleanup_expired_messages() -> tuple[int, bool]:
     ):
         return (0, True)
     try:
-        async with get_session() as session:
+        async with get_session() as session, session.begin():
             return await repository.cleanup_expired_sessions(
                 session,
                 retention_days=plugin_config.fanqie_message_store_retention_days,
@@ -87,7 +87,7 @@ async def record_bot_lifecycle(bot: Bot, event_type: str) -> bool:
     if platform_context is None:
         return False
     try:
-        async with get_session() as session:
+        async with get_session() as session, session.begin():
             await repository.record_api_call(
                 session,
                 repository.AuditEvent(
@@ -114,7 +114,7 @@ async def handle_event_received(normalized: NormalizedMessageEvent) -> None:
         return
     identity = normalized.identity
     try:
-        async with get_session() as session:
+        async with get_session() as session, session.begin():
             await repository.record_event_received(
                 session,
                 platform_id=identity.platform_id,
@@ -148,7 +148,7 @@ async def handle_matcher_result(
     if getattr(matcher, "block", False):
         status = f"{status}:blocked"
     try:
-        async with get_session() as session:
+        async with get_session() as session, session.begin():
             return await repository.record_matcher_result(
                 session,
                 platform_id=identity.platform_id,
@@ -179,7 +179,7 @@ async def handle_api_called(
     ):
         return
     try:
-        async with get_session() as session:
+        async with get_session() as session, session.begin():
             await repository.record_api_call(
                 session,
                 repository.AuditEvent(

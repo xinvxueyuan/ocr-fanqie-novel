@@ -843,7 +843,7 @@ async def _persist_session(record: SessionRecord | None) -> None:
     if record is None or not plugin_config.fanqie_message_store_enabled:
         return
     try:
-        async with get_session() as session:
+        async with get_session() as session, session.begin():
             await repository.upsert_verification_session(
                 session,
                 repository.VerificationSessionWrite(
@@ -884,7 +884,7 @@ async def _record_event(
         return
     trace = record.trace_id
     try:
-        async with get_session() as session:
+        async with get_session() as session, session.begin():
             await repository.record_verification_event(
                 session,
                 repository.VerificationEventWrite(
