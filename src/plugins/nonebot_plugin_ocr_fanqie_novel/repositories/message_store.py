@@ -329,9 +329,15 @@ async def cleanup_expired_sessions(
         {},
         conditions=[AuditRecord.created_at < cutoff],
     )
+    message_count, message_known = await delete(
+        session,
+        MessageRecord,
+        {},
+        conditions=[MessageRecord.created_at < cutoff],
+    )
     return (
-        session_count + event_count + audit_count,
-        session_known and event_known and audit_known,
+        session_count + event_count + audit_count + message_count,
+        session_known and event_known and audit_known and message_known,
     )
 
 

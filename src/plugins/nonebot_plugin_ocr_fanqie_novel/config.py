@@ -76,5 +76,5 @@ class Config(BaseModel):
     fanqie_message_store_enabled: bool = True
     fanqie_message_store_summary_limit: int = 500
     fanqie_message_store_cleanup_enabled: bool = True
-    fanqie_message_store_retention_days: int = 30
+    fanqie_message_store_retention_days: int = 49
     fanqie_message_store_record_api_calls: bool = False

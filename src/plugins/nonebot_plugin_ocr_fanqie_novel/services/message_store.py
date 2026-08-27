@@ -52,6 +52,8 @@ async def initialize_message_store() -> None:
         logger.info("消息存储已禁用")
         return
     logger.info("消息存储初始化完成")
+    # 启动时执行一次过期清理（删除超过保留期的历史记录），避免依赖关闭时清理。
+    await cleanup_expired_messages()
 
 
 async def shutdown_message_store() -> None:

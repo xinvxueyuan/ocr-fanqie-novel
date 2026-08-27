@@ -226,7 +226,7 @@ async def _recognize_and_extract(
             known_books=known_books,
         )
         evidences.append(ev)
-        per_model.append(_summarize_model_extraction(model, ev))
+        per_model.append(_summarize_model_extraction(model, ev, result))
         logger.debug(
             "模型 {} trace={} 提取: self={} book={} author={}",
             model,
@@ -272,8 +272,14 @@ _FIELD_KEYS: tuple[str, ...] = (
 def _summarize_model_extraction(
     model: str,
     ev: ReadingEvidence,
+    result: Any | None = None,
 ) -> dict[str, Any]:
-    """把一个模型的提取证据序列化为可审计的字典（含字段值/置信度/来源行）。"""
+    """把一个模型的提取证据序列化为可审计的字典。
+
+    含字段值/置信度/来源行，并附带该模型**全部 OCR 文本行**（text /
+    confidence / box），便于完整回溯「模型到底识别出了哪些内容、坐标在哪」。
+
+    """
     fields: dict[str, Any] = {}
     for key in _FIELD_KEYS:
         f = getattr(ev, key, None)
@@ -285,11 +291,23 @@ def _summarize_model_extraction(
                 "confidence": f.confidence,
                 "source": f.source_text,
             }
+    lines_out: list[dict[str, Any]] = []
+    if result is not None:
+        lines_out = [
+            {
+                "text": getattr(line, "text", None),
+                "confidence": getattr(line, "confidence", None),
+                "box": getattr(line, "box", None),
+            }
+            for page in getattr(result, "pages", None) or []
+            for line in getattr(page, "lines", None) or []
+        ]
     return {
         "model": model,
         "is_self_review": ev.is_self_review,
         "publish_days_ago": ev.publish_days_ago,
         "fields": fields,
+        "lines": lines_out,
     }
 
 
