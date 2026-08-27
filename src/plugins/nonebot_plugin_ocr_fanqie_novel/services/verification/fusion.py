@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .models import ExtractedField, ReadingEvidence
@@ -39,7 +39,7 @@ def _pick_field(
     evidences: list[ReadingEvidence],
     field_name: str,
     threshold: float,
-) -> ExtractedField | None:
+) -> tuple[ExtractedField | None, str | None]:
     """从多个模型证据中选取某字段置信度最高且达阈值者。
 
     ``is_self_review``（「我」徽章）为布尔标志，不参与置信度取优，单独处理。
@@ -50,12 +50,14 @@ def _pick_field(
         threshold: 置信度阈值；低于该值的字段不被采纳。
 
     Returns:
-        选中的字段；全部低于阈值或都为空时返回 ``None``。
+        (选中的字段, 来源模型索引)。字段全部低于阈值或都为空时返回
+        ``(None, None)``。
 
     """
     best: ExtractedField | None = None
     best_conf = -1.0
-    for ev in evidences:
+    best_model: str | None = None
+    for idx, ev in enumerate(evidences):
         field = getattr(ev, field_name, None)
         if field is None:
             continue
@@ -64,7 +66,8 @@ def _pick_field(
         if field.confidence > best_conf:
             best = field
             best_conf = field.confidence
-    return best
+            best_model = str(idx)
+    return best, best_model
 
 
 def merge_evidences(
@@ -96,7 +99,7 @@ def merge_evidences(
 
     merged = ReadingEvidence(is_self_review=is_self_review)
     for field_name in _FUSION_FIELDS:
-        picked = _pick_field(valid, field_name, threshold)
+        picked, _ = _pick_field(valid, field_name, threshold)
         if picked is not None:
             object.__setattr__(merged, field_name, picked)
     # publish_days_ago 取自所选 publish_time 的来源证据。
@@ -120,4 +123,53 @@ def merge_evidences(
     return merged
 
 
-__all__ = ["merge_evidences"]
+def merge_evidences_with_trace(
+    evidences: list[ReadingEvidence],
+    models: list[str],
+    *,
+    threshold: float | None = None,
+) -> tuple[ReadingEvidence, dict[str, dict[str, Any]]]:
+    """融合多模型证据并返回各字段的来源溯源。
+
+    与 :func:`merge_evidences` 结果一致，额外返回 ``provenance``：记录每个
+    字段最终采用的 ``value``、置信度及贡献的模型名（便于审计"哪个模型
+    提供了哪个字段"）。
+
+    Args:
+        evidences: 各模型的提取证据（与 models 一一对应）。
+        models: 各模型名（与 evidences 顺序一致）。
+        threshold: 置信度阈值；为 ``None`` 时使用默认 0.9。
+
+    Returns:
+        (融合后的证据, 字段溯源字典)。
+
+    """
+    merged = merge_evidences(evidences, threshold=threshold)
+    threshold = _DEFAULT_THRESHOLD if threshold is None else threshold
+    valid = [ev for ev in evidences if ev is not None]
+    # 字段溯源：对每个最终非空的字段，找到最高置信度的贡献者。
+    provenance: dict[str, dict[str, Any]] = {}
+    # 溯源用当前字段值匹配各模型的同字段（置信度最高者）。
+    for field_name in _FUSION_FIELDS:
+        final_field = getattr(merged, field_name, None)
+        if final_field is None:
+            provenance[field_name] = {"value": None, "confidence": None, "model": None}
+            continue
+        best_conf = -1.0
+        best_model: str | None = None
+        for idx, ev in enumerate(valid):
+            field = getattr(ev, field_name, None)
+            if field is None:
+                continue
+            if field.value == final_field.value and field.confidence > best_conf:
+                best_conf = field.confidence
+                best_model = models[idx] if idx < len(models) else str(idx)
+        provenance[field_name] = {
+            "value": final_field.value,
+            "confidence": best_conf if best_conf >= 0 else None,
+            "model": best_model,
+        }
+    return merged, provenance
+
+
+__all__ = ["merge_evidences", "merge_evidences_with_trace"]

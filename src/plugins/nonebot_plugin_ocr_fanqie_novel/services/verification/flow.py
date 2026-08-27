@@ -208,11 +208,13 @@ async def _recognize_and_extract(
     """
     trace_id = record.trace_id
     models = list(plugin_config.fanqie_ocr_models) or [_default_ocr_model()]
+    recognize_start = datetime.now(UTC)
     try:
         results = await recognize_image_url_multi(image_url, models=models)
     except OCRError as exc:
         logger.warning("OCR 识别失败 trace={}: {}", trace_id, exc)
         return None
+    recognize_elapsed = (datetime.now(UTC) - recognize_start).total_seconds()
     if not results:
         logger.warning("全部 OCR 模型识别失败 trace={}", trace_id)
         return None
@@ -235,10 +237,23 @@ async def _recognize_and_extract(
             ev.book_name.value if ev.book_name else None,
             ev.author.value if ev.author else None,
         )
-    merged = fusion.merge_evidences(
+    merged, provenance = fusion.merge_evidences_with_trace(
         evidences,
+        models,
         threshold=plugin_config.fanqie_similarity_threshold,
     )
+    # 逐步判定链路：为什么 is_sufficient / 为什么缺某字段。
+    decision_steps: list[str] = []
+    if not merged.is_self_review:
+        decision_steps.append("缺「我」徽章(is_self_review=False)")
+    if merged.book_name is None:
+        decision_steps.append("缺书名字段(book_name=None)")
+    if merged.author is None:
+        decision_steps.append("缺作者字段(author=None)")
+    if merged.is_sufficient:
+        decision_steps.append("信息充分")
+    else:
+        decision_steps.append("信息不足")
     # 将完整识别/提取链路落库，trace_id 串联。
     await _record_event(
         record,
@@ -246,7 +261,10 @@ async def _recognize_and_extract(
         success=True,
         detail={
             "per_model": per_model,
+            "provenance": provenance,
             "merged": _summarize_model_extraction("merged", merged),
+            "recognize_elapsed_s": round(recognize_elapsed, 3),
+            "decision_steps": decision_steps,
             "is_sufficient": merged.is_sufficient,
         },
     )
