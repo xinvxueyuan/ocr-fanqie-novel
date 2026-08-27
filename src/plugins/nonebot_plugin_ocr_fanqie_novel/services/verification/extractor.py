@@ -93,8 +93,17 @@ def extract_reading_evidence(
     publish_field, publish_days = _extract_publish_time(lines, self_marker_line)
     rating_field = _extract_rating(lines)
     duration_field = _extract_read_duration(lines)
+    # 该书名字段为空时,尝试从合并行(书名+作者同行)切分提取。
     book_field = _extract_book_title(lines, known_books=known_books)
     author_field = _extract_author(lines, book_field)
+    if book_field is None or author_field is None:
+        split = _split_merged_book_author(lines, known_books=known_books)
+        if split is not None:
+            merged_book, merged_author = split
+            if book_field is None:
+                book_field = merged_book
+            if author_field is None or author_field.value != merged_author.value:
+                author_field = merged_author
     review_field = _extract_review_text(lines, book_field)
 
     return ReadingEvidence(
@@ -476,6 +485,53 @@ def _extract_review_text(
         source_text=best.text,
         confidence=best.confidence,
     )
+
+
+def _split_merged_book_author(
+    lines: list[OCRTextLine],
+    *,
+    known_books: frozenset[str] | None,
+) -> tuple[ExtractedField, ExtractedField] | None:
+    """从合并行（书名+作者同行）中切分出书名与作者。
+
+    书评详情页中书名与作者可能在**同一行**（如
+    ``少女乐队神人多，急需棍棒教育百舸川掮客``），无冒号也无换行分隔。
+    当 ``known_books`` 提供时，若某行以某白名单书名为**前缀**，则取该书名为
+    书名，行内其余文本为作者。
+
+    Args:
+        lines: OCR 文本行列表。
+        known_books: 群策略配置的白名单书名（必须提供，否则无法可靠切分）。
+
+    Returns:
+        (书名字段, 作者字段)；无可切分的合并行时返回 ``None``。
+
+    """
+    if not known_books:
+        return None
+    for line in lines:
+        text = line.text.strip()
+        if not text:
+            continue
+        for book in known_books:
+            if not book:
+                continue
+            if text.startswith(book):
+                remainder = text[len(book) :].strip()
+                if not remainder:
+                    continue
+                book_field = ExtractedField(
+                    value=book,
+                    source_text=line.text,
+                    confidence=line.confidence,
+                )
+                author_field = ExtractedField(
+                    value=remainder,
+                    source_text=line.text,
+                    confidence=line.confidence,
+                )
+                return book_field, author_field
+    return None
 
 
 def _find_page_title_y(lines: list[OCRTextLine]) -> int | None:

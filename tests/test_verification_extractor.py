@@ -262,3 +262,26 @@ def test_no_colon_book_title_whitelist_miss_is_rejected() -> None:
     assert evidence.book_name is None
     assert evidence.author is None
     assert evidence.is_sufficient is False
+
+
+def test_merged_book_author_line_with_whitelist() -> None:
+    """书名与作者合并在同一行（``书名作者``）：应基于白名单前缀切分提取。"""
+    known_books = frozenset({
+        "少女乐队神人多，急需棍棒教育",
+        "综漫：吉他雇佣兵无法找到归宿？",
+    })
+    lines = [
+        _line("书评详情", 198),
+        _line("癲火回荡", 403),
+        _line("我", 412),
+        _line("★★★★阅读14小时后点评", 653),
+        _line("少女乐队神人多，急需棍棒教育百舸川掮客", 1000),
+    ]
+    evidence = extract_reading_evidence(_result(lines), known_books=known_books)
+
+    assert evidence.is_self_review is True
+    assert evidence.book_name is not None
+    assert evidence.book_name.value == "少女乐队神人多，急需棍棒教育"
+    assert evidence.author is not None
+    assert evidence.author.value == "百舸川掮客"
+    assert evidence.is_sufficient is True
