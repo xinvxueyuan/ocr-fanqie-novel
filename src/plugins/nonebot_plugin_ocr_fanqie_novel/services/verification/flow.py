@@ -9,7 +9,7 @@ matcher，便于测试。
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from nonebot import logger, require
 
@@ -159,7 +159,7 @@ async def handle_submission(
     if not image_url:
         return await _handle_download_failure(group_id, user_id)
 
-    evidence = await _recognize_and_extract(image_url, group_id, record.trace_id)
+    evidence = await _recognize_and_extract(image_url, group_id, record)
     if evidence is None:
         return await _handle_ocr_failure(bot, group_id, user_id)
     await _persist_last_extracted(record, evidence)
@@ -190,21 +190,23 @@ async def handle_submission(
 async def _recognize_and_extract(
     image_url: str,
     group_id: int,
-    trace_id: str | None = None,
+    record: SessionRecord,
 ) -> ReadingEvidence | None:
     """用多模型并行识别图片，融合各模型提取结果。
 
-    所有模型都失败时返回 ``None``。
+    所有模型都失败时返回 ``None``。识别与各模型提取结果会连同事务追踪
+    （``record.trace_id``）写入事件表「verify.ocr」，确保链路可完整回溯。
 
     Args:
         image_url: 图片 URL。
         group_id: 群号（用于取作者白名单书名）。
-        trace_id: 事务追踪标识（写入日志便于追溯）。
+        record: 当前验证会话（含 trace_id、群号、用户）。
 
     Returns:
         融合后的证据；全部模型失败返回 ``None``。
 
     """
+    trace_id = record.trace_id
     models = list(plugin_config.fanqie_ocr_models) or [_default_ocr_model()]
     try:
         results = await recognize_image_url_multi(image_url, models=models)
@@ -217,12 +219,14 @@ async def _recognize_and_extract(
 
     known_books = _group_known_books(group_id)
     evidences: list[ReadingEvidence] = []
+    per_model: list[dict[str, Any]] = []
     for model, result in results.items():
         ev = extractor.extract_reading_evidence(
             result,
             known_books=known_books,
         )
         evidences.append(ev)
+        per_model.append(_summarize_model_extraction(model, ev))
         logger.debug(
             "模型 {} trace={} 提取: self={} book={} author={}",
             model,
@@ -231,15 +235,62 @@ async def _recognize_and_extract(
             ev.book_name.value if ev.book_name else None,
             ev.author.value if ev.author else None,
         )
-    return fusion.merge_evidences(
+    merged = fusion.merge_evidences(
         evidences,
         threshold=plugin_config.fanqie_similarity_threshold,
     )
+    # 将完整识别/提取链路落库，trace_id 串联。
+    await _record_event(
+        record,
+        event_type="verify.ocr",
+        success=True,
+        detail={
+            "per_model": per_model,
+            "merged": _summarize_model_extraction("merged", merged),
+            "is_sufficient": merged.is_sufficient,
+        },
+    )
+    return merged
 
 
 def _default_ocr_model() -> str:
     """返回配置的主 OCR 模型名。"""
     return plugin_config.fanqie_ocr_model or "PaddleOCR-VL-1.6"
+
+
+_FIELD_KEYS: tuple[str, ...] = (
+    "reader_name",
+    "publish_time",
+    "rating",
+    "read_duration",
+    "book_name",
+    "author",
+    "review_text",
+)
+
+
+def _summarize_model_extraction(
+    model: str,
+    ev: ReadingEvidence,
+) -> dict[str, Any]:
+    """把一个模型的提取证据序列化为可审计的字典（含字段值/置信度/来源行）。"""
+    fields: dict[str, Any] = {}
+    for key in _FIELD_KEYS:
+        f = getattr(ev, key, None)
+        if f is None:
+            fields[key] = None
+        else:
+            fields[key] = {
+                "value": f.value,
+                "confidence": f.confidence,
+                "source": f.source_text,
+            }
+    return {
+        "model": model,
+        "is_self_review": ev.is_self_review,
+        "publish_days_ago": ev.publish_days_ago,
+        "fields": fields,
+    }
 
 
 async def handle_private_submission(
