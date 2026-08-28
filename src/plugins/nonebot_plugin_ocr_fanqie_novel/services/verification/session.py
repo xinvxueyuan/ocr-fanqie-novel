@@ -79,6 +79,16 @@ def _default_deadline(status: str) -> datetime:
     return datetime.now(UTC) + timedelta(seconds=plugin_config.fanqie_response_timeout)
 
 
+def _aware_expires(record: SessionRecord) -> datetime:
+    """返回会话的 timestamp-aware 截止时间（缺失/naive 时归一化兜底）。"""
+    expires_at = record.expires_at
+    if expires_at is None:
+        expires_at = _default_deadline(record.status)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    return expires_at
+
+
 class SessionStore:
     """活跃验证会话的内存存储与超时调度。"""
 
@@ -325,9 +335,7 @@ class SessionStore:
         record = self._sessions[key]
         if record.status not in ("waiting", "awaiting_admin"):
             return  # 终态无需调度
-        expires_at = record.expires_at or _default_deadline(record.status)
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=UTC)
+        expires_at = _aware_expires(record)
         delay = max(0.0, (expires_at - datetime.now(UTC)).total_seconds())
         task_name = f"fanqie-timeout:{key[0]}:{key[1]}"
         task = asyncio.create_task(
@@ -369,7 +377,8 @@ class SessionStore:
         ):
             if ahead <= 0:
                 continue
-            fire_at = record.expires_at - timedelta(seconds=ahead)
+            expires_at = _aware_expires(record)
+            fire_at = expires_at - timedelta(seconds=ahead)
             delay = (fire_at - now).total_seconds()
             if delay <= 0:
                 continue  # 该提前量已过，跳过
@@ -383,7 +392,7 @@ class SessionStore:
     async def _run_reminder(self, key: _SessionKey, ahead: int) -> None:
         """等待到应提醒时刻，仍处于待管理员决策则触发提醒回调。"""
         record = self._sessions[key]
-        fire_at = record.expires_at - timedelta(seconds=ahead)
+        fire_at = _aware_expires(record) - timedelta(seconds=ahead)
         delay = max(0.0, (fire_at - datetime.now(UTC)).total_seconds())
         try:
             await asyncio.sleep(delay)
@@ -392,7 +401,7 @@ class SessionStore:
         record = self._sessions.get(key)
         if record is None or record.status != "awaiting_admin":
             return
-        remaining = int((record.expires_at - datetime.now(UTC)).total_seconds())
+        remaining = int((_aware_expires(record) - datetime.now(UTC)).total_seconds())
         if remaining <= 0:
             return  # 已到移出时刻，交由超时回调处理
         callback = self._reminder_callback
