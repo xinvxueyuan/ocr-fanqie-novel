@@ -53,6 +53,15 @@ _SECONDS_PER_HOUR = 3600
 _MINUTES_PER_HOUR = 60
 
 
+def _ensure_aware(dt: datetime | None) -> datetime | None:
+    """把可能 naive 的 datetime 归一化为 aware（UTC）；None 原样返回。"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 def _register[T: Callable[..., Awaitable[Any]]](
     matcher: type[Matcher],
 ) -> Callable[[T], T]:
@@ -408,8 +417,12 @@ async def on_admin_pending_list(
     else:
         now = datetime.now(UTC)
         lines: list[str] = []
-        for record in sorted(records, key=lambda r: r.expires_at):
-            remaining = max(0, int((record.expires_at - now).total_seconds()))
+        for record in sorted(
+            records,
+            key=lambda r: _ensure_aware(r.expires_at) or now,
+        ):
+            exp = _ensure_aware(record.expires_at) or now
+            remaining = max(0, int((exp - now).total_seconds()))
             hours, remainder = divmod(remaining, _SECONDS_PER_HOUR)
             minutes = (remainder + 59) // 60
             if minutes >= _MINUTES_PER_HOUR:
