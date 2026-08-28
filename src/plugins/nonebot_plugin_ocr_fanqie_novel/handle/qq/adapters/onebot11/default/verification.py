@@ -211,6 +211,10 @@ async def on_private_image_submission(
 
     仅响应带图片的私聊消息；纯文本（如选群命令）交给 verify_cmd 处理。
     """
+    from ......core.config import plugin_config
+
+    if not plugin_config.fanqie_private_verify_enabled:
+        return
     from ......handle.qq.commands.verification import _contains_image
 
     if not _contains_image(event):
@@ -233,6 +237,10 @@ async def on_verify_select(
     args: Message = CommandArg(),
 ) -> None:
     """私聊选群：多群待验证时用户用「验证 <群号>」指定目标群。"""
+    from ......core.config import plugin_config
+
+    if not plugin_config.fanqie_private_verify_enabled:
+        return
     text = args.extract_plain_text().strip()
     if not text:
         await bot.send_private_msg(

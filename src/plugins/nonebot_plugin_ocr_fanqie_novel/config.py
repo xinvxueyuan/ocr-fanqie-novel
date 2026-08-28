@@ -44,6 +44,9 @@ class Config(BaseModel):
         fanqie_message_store_cleanup_enabled: 是否在关闭时清理过期记录。
         fanqie_message_store_retention_days: 记录的保留天数。
         fanqie_message_store_record_api_calls: 是否记录平台 API 调用审计。
+        fanqie_private_verify_enabled: 是否启用「私聊发图完成验证」通道。
+            为 False 时停用私聊图片验证与「验证 <群号>」选群命令，仅保留
+            群内验证。默认 True（启用）。
 
     """
 
@@ -54,6 +57,7 @@ class Config(BaseModel):
         "请发送一张您在番茄小说发布的「书评详情页」截图"
         "（需显示您的书评及「我」徽章）。谢谢配合！"
     )
+    fanqie_private_verify_enabled: bool = True
     fanqie_response_timeout: int = 600
     fanqie_max_attempts: int = 3
     fanqie_admin_decision_timeout: int = 57600  # 16 小时（秒）
