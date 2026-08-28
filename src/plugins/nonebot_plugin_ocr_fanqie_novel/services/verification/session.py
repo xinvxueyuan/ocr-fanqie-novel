@@ -326,6 +326,8 @@ class SessionStore:
         if record.status not in ("waiting", "awaiting_admin"):
             return  # 终态无需调度
         expires_at = record.expires_at or _default_deadline(record.status)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
         delay = max(0.0, (expires_at - datetime.now(UTC)).total_seconds())
         task_name = f"fanqie-timeout:{key[0]}:{key[1]}"
         task = asyncio.create_task(

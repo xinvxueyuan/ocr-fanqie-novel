@@ -114,14 +114,19 @@ def _is_admin(user_id: int) -> bool:
 async def send_guide(bot: OneBot11Bot, group_id: int, user_id: int) -> bool:
     """FR1：@新成员发送验证引导消息。"""
     timeout_minutes = max(1, plugin_config.fanqie_response_timeout // 60)
+    quote_guide = (
+        "可在群成员列表中点击我发起临时会话直接发送截图。\n"
+        if plugin_config.fanqie_private_verify_enabled
+        else ""
+    )
     message = Message(MessageSegment.at(user_id)) + (
         f" {plugin_config.fanqie_welcome_message} "
         f"请在 {timeout_minutes} 分钟内完成截图并发送，超时后将由管理员人工处理。"
-        f"可在群成员列表中点击我发起临时会话直接发送截图。\n"
+        f"{quote_guide}"
         "【如何查找书评】进入番茄小说 App -> 右下角「我的」页面按压进入 -> "
         "点我的头像栏目进入用户信息页面 -> 在顶级菜单栏找到「讨论」并进入 -> "
         "在子菜单栏找到「书评」 -> 滚动屏幕找到本书的书评并点击进入「书评详情页」 -> "
-        "截图保存并发送（本群或临时会话均可）。"
+        "截图保存并发送到本 QQ 群。"
     )
     try:
         await bot.send_group_msg(group_id=group_id, message=message)
