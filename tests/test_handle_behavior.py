@@ -174,12 +174,12 @@ async def test_group_increase_sends_guide(app: App) -> None:
 
         welcome = (
             f" {plugin_config.fanqie_welcome_message} "
-            "请在 10 分钟内发送，超时后将由管理员人工处理。"
-            "也可以私聊我发送截图完成验证。\n"
+            "请在 10 分钟内完成截图并发送，超时后将由管理员人工处理。"
+            "可在群成员列表中点击我发起临时会话直接发送截图。\n"
             "【如何查找书评】进入番茄小说 App -> 右下角「我的」页面按压进入 -> "
             "点我的头像栏目进入用户信息页面 -> 在顶级菜单栏找到「讨论」并进入 -> "
             "在子菜单栏找到「书评」 -> 滚动屏幕找到本书的书评并点击进入「书评详情页」 -> "
-            "截图保存并发送到本 QQ 群。"
+            "截图保存并发送（本群或临时会话均可）。"
         )
         expected_message = Message(MessageSegment.at(_USER_ID)) + welcome
         ctx.should_call_api(

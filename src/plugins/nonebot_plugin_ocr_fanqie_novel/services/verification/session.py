@@ -70,6 +70,15 @@ def _new_trace_id() -> str:
     return uuid.uuid4().hex
 
 
+def _default_deadline(status: str) -> datetime:
+    """按会话状态推算默认超时截止时间（expires_at 缺失时兜底）。"""
+    if status == "awaiting_admin":
+        return datetime.now(UTC) + timedelta(
+            seconds=plugin_config.fanqie_admin_decision_timeout
+        )
+    return datetime.now(UTC) + timedelta(seconds=plugin_config.fanqie_response_timeout)
+
+
 class SessionStore:
     """活跃验证会话的内存存储与超时调度。"""
 
@@ -316,7 +325,8 @@ class SessionStore:
         record = self._sessions[key]
         if record.status not in ("waiting", "awaiting_admin"):
             return  # 终态无需调度
-        delay = max(0.0, (record.expires_at - datetime.now(UTC)).total_seconds())
+        expires_at = record.expires_at or _default_deadline(record.status)
+        delay = max(0.0, (expires_at - datetime.now(UTC)).total_seconds())
         task_name = f"fanqie-timeout:{key[0]}:{key[1]}"
         task = asyncio.create_task(
             self._run_timeout(key, delay, record.status),
