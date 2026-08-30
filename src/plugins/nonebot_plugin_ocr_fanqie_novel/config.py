@@ -47,11 +47,16 @@ class Config(BaseModel):
         fanqie_private_verify_enabled: 是否启用「私聊发图完成验证」通道。
             为 False 时停用私聊图片验证与「验证 <群号>」选群命令，仅保留
             群内验证。默认 True（启用）。
+        fanqie_allow_group_admin_commands: 是否允许群内管理员（admin/群主）
+            使用 /keep、/kick 等命令。为 True 时，除配置的管理员外，
+            群内的管理员与群主也可执行；为 False 时仅配置的管理员可执行。
+            默认 False（关闭）。
 
     """
 
     fanqie_verify_groups: set[int] = Field(default_factory=set)
     fanqie_admin_ids: set[int] = Field(default_factory=set)
+    fanqie_allow_group_admin_commands: bool = False
     fanqie_welcome_message: str = (
         "欢迎加入本群！为了验证您是真实的读者，"
         "请发送一张您在番茄小说发布的「书评详情页」截图"

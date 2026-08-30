@@ -287,7 +287,12 @@ async def on_admin_kick(
     args: Message = CommandArg(),
 ) -> None:
     """FR9：管理员踢出指定成员。"""
-    if not _is_admin_user(event):
+    from ......core.config import plugin_config
+
+    if plugin_config.fanqie_allow_group_admin_commands:
+        if not await _is_privileged(bot, event):
+            return
+    elif not _is_admin_user(event):
         return
     target_user_id = _extract_target_user(args, event)
     if target_user_id is None:
@@ -312,7 +317,12 @@ async def on_admin_keep(
     args: Message = CommandArg(),
 ) -> None:
     """FR9：管理员保留指定成员。"""
-    if not _is_admin_user(event):
+    from ......core.config import plugin_config
+
+    if plugin_config.fanqie_allow_group_admin_commands:
+        if not await _is_privileged(bot, event):
+            return
+    elif not _is_admin_user(event):
         return
     target_user_id = _extract_target_user(args, event)
     if target_user_id is None:
