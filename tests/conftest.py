@@ -44,10 +44,12 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.setdefault("SQLALCHEMY_DATABASE_URL", "sqlite+aiosqlite:///fanqie.db")
     os.environ.setdefault("SUPERUSERS", '["1330509996"]')
     os.environ.setdefault("FANQIE_ADMIN_IDS", "[1330509996]")
+    # COMMAND_START 必须走环境变量（JSON 形式），nonebot 才能保留空字符串前缀；
+    # 直接以 Python list 参数传入时空字符串会被丢弃，导致裸命令（无 / 前缀）不匹配。
+    os.environ.setdefault("COMMAND_START", '["", "/"]')
 
     nonebot.init(
         DRIVER="~fastapi+~httpx+~websockets",
-        COMMAND_START=["", "/"],
         localstore_cache_dir=_LOCALSTORE_ROOT / "cache",
         localstore_config_dir=_LOCALSTORE_ROOT / "config",
         localstore_data_dir=_LOCALSTORE_ROOT / "data",
