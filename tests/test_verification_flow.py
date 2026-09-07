@@ -115,7 +115,7 @@ async def test_start_verification_sends_guide() -> None:
     assert get_session_store().is_waiting("123", "10001") is True
     send_calls = [c for c in bot.calls if c[0] == "send_group_msg"]
     assert len(send_calls) == 1
-    assert "欢迎加入本群" in str(send_calls[0][1]["message"])
+    assert "欢迎新人进群" in str(send_calls[0][1]["message"])
 
 
 @pytest.mark.asyncio
@@ -183,7 +183,7 @@ async def test_handle_submission_passes(
     assert "验证通过" in reply
     assert get_session_store().get("123", "10001").status == "approved"  # type: ignore[union-attr]
     welcomes = [c for c in bot.calls if c[0] == "send_group_msg"]
-    assert any("欢迎加入本群" in str(c[1]["message"]) for c in welcomes)
+    assert any("欢迎新人进群" in str(c[1]["message"]) for c in welcomes)
 
 
 @pytest.mark.asyncio

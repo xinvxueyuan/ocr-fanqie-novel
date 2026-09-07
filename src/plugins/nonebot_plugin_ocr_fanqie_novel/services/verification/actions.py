@@ -120,7 +120,7 @@ async def send_guide(bot: OneBot11Bot, group_id: int, user_id: int) -> bool:
         else ""
     )
     message = Message(MessageSegment.at(user_id)) + (
-        f" {plugin_config.fanqie_welcome_message} "
+        f" {_welcome_message(group_id)} "
         f"请在 {timeout_minutes} 分钟内完成截图并发送，超时后将由管理员人工处理。"
         f"{quote_guide}"
         "【如何查找书评】进入番茄小说 App -> 右下角「我的」页面按压进入 -> "
@@ -134,6 +134,21 @@ async def send_guide(bot: OneBot11Bot, group_id: int, user_id: int) -> bool:
         logger.warning("发送验证引导消息失败 group={} user={}", group_id, user_id)
         return False
     return True
+
+
+def _welcome_message(group_id: int) -> str:
+    """返回该群的验证引导文案。
+
+    优先取策略配置中该群节点的自定义 ``welcome_message``，未配置时回退到
+    全局默认 ``fanqie_welcome_message``。
+
+    """
+    from . import policy
+
+    group = policy.get_policy().group_policy(group_id)
+    if group is not None and group.welcome_message:
+        return group.welcome_message
+    return plugin_config.fanqie_welcome_message
 
 
 async def send_welcome(bot: OneBot11Bot, group_id: int, user_id: int) -> bool:

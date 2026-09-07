@@ -165,3 +165,60 @@ def test_decorate_notice_unconfigured_group() -> None:
     notice = _decorate_notice("【验证失败】测试", 999, 10001)
 
     assert "该群允许作者：未配置" in notice
+
+
+def test_welcome_message_custom_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    """群节点配了 welcome_message 时优先取自定义文案。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        policy as policy_module,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification.actions import (
+        _welcome_message,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification.policy import (
+        GroupPolicy,
+        VerificationPolicy,
+    )
+
+    monkeypatch.setattr(
+        policy_module,
+        "_policy_cache",
+        VerificationPolicy(
+            require_all=False,
+            required_elements=frozenset({"book_name", "author"}),
+            groups={123: GroupPolicy(group_id=123, welcome_message="本群专属欢迎语")},
+        ),
+    )
+
+    assert _welcome_message(123) == "本群专属欢迎语"
+
+
+def test_welcome_message_fallback_global(monkeypatch: pytest.MonkeyPatch) -> None:
+    """群节点未配 welcome_message（或群不在策略里）时回退全局默认。"""
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.core.config import (
+        plugin_config,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        policy as policy_module,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification.actions import (
+        _welcome_message,
+    )
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification.policy import (
+        GroupPolicy,
+        VerificationPolicy,
+    )
+
+    monkeypatch.setattr(
+        policy_module,
+        "_policy_cache",
+        VerificationPolicy(
+            require_all=False,
+            required_elements=frozenset({"book_name", "author"}),
+            groups={123: GroupPolicy(group_id=123)},  # 无 welcome_message
+        ),
+    )
+
+    assert _welcome_message(123) == plugin_config.fanqie_welcome_message
+    # 群不在策略里：group_policy 返回 None，同样回退全局
+    assert _welcome_message(999) == plugin_config.fanqie_welcome_message

@@ -58,8 +58,9 @@ class Config(BaseModel):
     fanqie_admin_ids: set[int] = Field(default_factory=set)
     fanqie_allow_group_admin_commands: bool = False
     fanqie_welcome_message: str = (
-        "欢迎加入本群！为了验证您是真实的读者，"
-        "请发送一张您在番茄小说发布的「书评详情页」截图"
+        "欢迎新人进群，记得看先去群公告或群文件教程，"
+        "如果需要留下需要发带有阅读时长的书评。"
+        "为了验证您是真实的读者，请发送一张您在番茄小说发布的「书评详情页」截图"
         "（需显示您的书评及「我」徽章）。谢谢配合！"
     )
     fanqie_private_verify_enabled: bool = True

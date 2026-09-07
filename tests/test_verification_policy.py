@@ -268,3 +268,52 @@ books = ["三体"]
     )
     with pytest.raises(PolicyConfigError):
         load_policy(path)
+
+
+def test_load_policy_group_welcome_message(tmp_path: Path) -> None:
+    """群节点可配自定义 welcome_message。"""
+    path = tmp_path / "welcome.toml"
+    path.write_text(
+        """[verification]
+require_all = false
+required_elements = ["book_name", "author"]
+
+[verification.groups]
+
+[verification.groups.868258211]
+welcome_message = "本群专属欢迎语"
+
+[[verification.groups.868258211.authors]]
+name = "阿百川大鬼"
+
+[[verification.groups.456.authors]]
+name = "刘慈欣"
+""",
+        encoding="utf-8",
+    )
+    policy = load_policy(path)
+    assert policy.groups[868258211].welcome_message == "本群专属欢迎语"
+    # 未配置 welcome_message 的群节点回退 None
+    assert policy.groups[456].welcome_message is None
+
+
+def test_load_policy_welcome_message_bad_type(tmp_path: Path) -> None:
+    """welcome_message 非字符串应抛出配置错误。"""
+    path = tmp_path / "bad-welcome.toml"
+    path.write_text(
+        """[verification]
+require_all = false
+required_elements = ["book_name", "author"]
+
+[verification.groups]
+
+[verification.groups.868258211]
+welcome_message = 123
+
+[[verification.groups.868258211.authors]]
+name = "阿百川大鬼"
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(PolicyConfigError):
+        load_policy(path)

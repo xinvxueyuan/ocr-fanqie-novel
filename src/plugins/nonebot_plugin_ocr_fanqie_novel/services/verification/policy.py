@@ -97,11 +97,14 @@ class GroupPolicy:
     Attributes:
         group_id: 群号。
         authors: 该群允许的作者白名单；为空表示未配置（放行）。
+        welcome_message: 该群自定义的验证引导文案；为 ``None`` 时回退
+            到全局默认 ``fanqie_welcome_message``。
 
     """
 
     group_id: int
     authors: tuple[AuthorEntry, ...] = ()
+    welcome_message: str | None = None
 
     @property
     def author_names(self) -> frozenset[str]:
@@ -327,7 +330,12 @@ def _build_groups(verification: dict[str, Any]) -> dict[int, GroupPolicy]:
     for raw_group_id, raw_group in groups_raw.items():
         group_id = _parse_group_id(raw_group_id, raw_group)
         authors = _parse_authors(raw_group, group_id)
-        groups[group_id] = GroupPolicy(group_id=group_id, authors=authors)
+        welcome_message = _parse_welcome_message(raw_group, group_id)
+        groups[group_id] = GroupPolicy(
+            group_id=group_id,
+            authors=authors,
+            welcome_message=welcome_message,
+        )
     return groups
 
 
@@ -342,6 +350,19 @@ def _parse_group_id(raw: Any, raw_group: Any) -> int:
             f"策略配置群 {group_id} 应为表，实际为 {type(raw_group).__name__}"
         )
     return group_id
+
+
+def _parse_welcome_message(raw_group: dict[str, Any], group_id: int) -> str | None:
+    """解析群节点可选的自定义引导文案（``welcome_message``）。"""
+    raw = raw_group.get("welcome_message")
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise PolicyConfigError(
+            f"策略配置群 {group_id} 的 'welcome_message' 应为非空字符串，"
+            f"实际为 {type(raw).__name__}"
+        )
+    return raw.strip()
 
 
 def _parse_authors(raw_group: dict[str, Any], group_id: int) -> tuple[AuthorEntry, ...]:
