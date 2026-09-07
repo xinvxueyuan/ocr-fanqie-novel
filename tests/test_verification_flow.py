@@ -1218,7 +1218,9 @@ async def test_private_submission_multi_group_asks_selection(
     )
 
     reply = await handle_private_submission(
-        FakeBot(), user_id=10001, image_url="https://example.com/p.png"
+        FakeBot(),  # type: ignore[arg-type]
+        user_id=10001,
+        image_url="https://example.com/p.png",
     )
     assert "2 个群等待验证" in reply
     assert "123" in reply and "456" in reply
@@ -1260,7 +1262,9 @@ async def test_private_submission_multi_group_with_target(
     store.set_private_target("10001", "456")
 
     reply = await handle_private_submission(
-        FakeBot(), user_id=10001, image_url="https://example.com/p.png"
+        FakeBot(),  # type: ignore[arg-type]
+        user_id=10001,
+        image_url="https://example.com/p.png",
     )
     assert "验证通过" in reply
     assert store.get("123", "10001").status == "waiting"  # type: ignore[union-attr]

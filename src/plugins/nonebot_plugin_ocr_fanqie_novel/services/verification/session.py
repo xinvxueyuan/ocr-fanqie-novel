@@ -70,20 +70,9 @@ def _new_trace_id() -> str:
     return uuid.uuid4().hex
 
 
-def _default_deadline(status: str) -> datetime:
-    """按会话状态推算默认超时截止时间（expires_at 缺失时兜底）。"""
-    if status == "awaiting_admin":
-        return datetime.now(UTC) + timedelta(
-            seconds=plugin_config.fanqie_admin_decision_timeout
-        )
-    return datetime.now(UTC) + timedelta(seconds=plugin_config.fanqie_response_timeout)
-
-
 def _aware_expires(record: SessionRecord) -> datetime:
-    """返回会话的 timestamp-aware 截止时间（缺失/naive 时归一化兜底）。"""
+    """返回会话的 timestamp-aware 截止时间（naive 时归一化兜底）。"""
     expires_at = record.expires_at
-    if expires_at is None:
-        expires_at = _default_deadline(record.status)
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
     return expires_at

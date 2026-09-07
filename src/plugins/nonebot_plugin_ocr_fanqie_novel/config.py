@@ -75,6 +75,11 @@ class Config(BaseModel):
     fanqie_ocr_timeout: float = 15.0
     fanqie_ocr_poll_timeout: float = 120.0
     fanqie_ocr_model: str = "PaddleOCR-VL-1.6"
+    fanqie_vision_enabled: bool = True
+    fanqie_vision_api_base: str = "https://api.deepseek.com"
+    fanqie_vision_api_key: str = ""
+    fanqie_vision_model: str = "deepseek-v4-flash-vision-exp"
+    fanqie_vision_timeout: float = 60.0
     fanqie_similarity_threshold: float = 0.9
     fanqie_ocr_models: tuple[str, ...] = (
         "PaddleOCR-VL-1.6",

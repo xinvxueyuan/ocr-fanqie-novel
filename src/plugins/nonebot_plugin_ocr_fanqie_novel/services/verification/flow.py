@@ -23,7 +23,7 @@ from ...services.ocr import (
     OCRError,
     recognize_image_url_multi,
 )
-from . import actions, extractor, fusion, judgment, policy
+from . import actions, extractor, fusion, judgment, policy, vision
 from .session import SessionRecord, get_session_store
 
 if TYPE_CHECKING:
@@ -161,6 +161,38 @@ async def handle_submission(
 
     evidence = await _recognize_and_extract(image_url, group_id, record)
     if evidence is None:
+        # OCR 识别不出时改用视觉模型看图兜底判定。
+        verdict = await vision.vision_fallback(image_url, group_id)
+        if verdict is not None:
+            fallback_evidence = vision.verdict_to_evidence(verdict)
+            await _persist_last_extracted(record, fallback_evidence)
+            await _record_event(
+                record,
+                event_type="verify.ocr",
+                success=True,
+                detail={
+                    "fallback": "vision",
+                    "raw": verdict.raw,
+                    "passed": verdict.passed,
+                    "reason": verdict.reason,
+                },
+            )
+            if verdict.passed:
+                logger.info("视觉兜底判定通过 group={} user={}", group_id, user_id)
+                return await _handle_pass(bot, group_id, user_id)
+            logger.info(
+                "视觉兜底判定拒绝 group={} user={} reason={}",
+                group_id,
+                user_id,
+                verdict.reason,
+            )
+            return await _handle_reject(
+                bot,
+                group_id,
+                user_id,
+                fallback_evidence,
+                verdict.reason,
+            )
         return await _handle_ocr_failure(bot, group_id, user_id)
     await _persist_last_extracted(record, evidence)
 

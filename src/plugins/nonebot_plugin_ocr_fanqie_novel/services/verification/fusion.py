@@ -85,7 +85,7 @@ def merge_evidences(
         融合后的证据。
 
     """
-    valid = [ev for ev in evidences if ev is not None]
+    valid = list(evidences)
     threshold = _DEFAULT_THRESHOLD if threshold is None else threshold
     if not valid:
         from .models import ReadingEvidence
@@ -146,7 +146,7 @@ def merge_evidences_with_trace(
     """
     merged = merge_evidences(evidences, threshold=threshold)
     threshold = _DEFAULT_THRESHOLD if threshold is None else threshold
-    valid = [ev for ev in evidences if ev is not None]
+    valid = list(evidences)
     # 字段溯源：对每个最终非空的字段，找到最高置信度的贡献者。
     provenance: dict[str, dict[str, Any]] = {}
     # 溯源用当前字段值匹配各模型的同字段（置信度最高者）。

@@ -27,6 +27,7 @@ dependencies = [
     "nonebot-plugin-localstore>=0.7.4",
     "nonebot-plugin-orm[aiosqlite]>=0.8.3",
     "aiofiles>=25.1.0",
+    "openai>=1.0.0",
     "rtoml>=0.13.0",
 ]
 

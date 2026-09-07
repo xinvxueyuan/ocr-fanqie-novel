@@ -6,7 +6,11 @@ from nonebot.adapters.onebot.v11 import (
     GroupBanNoticeEvent,
     GroupDecreaseNoticeEvent,
 )
-from nonebot.adapters.onebot.v11.event import GroupMessageEvent, PrivateMessageEvent
+from nonebot.adapters.onebot.v11.event import (
+    GroupMessageEvent,
+    MessageEvent,
+    PrivateMessageEvent,
+)
 from nonebot.permission import SUPERUSER
 
 from ....services.verification import get_session_store
@@ -20,7 +24,7 @@ def _has_pending_session(event: GroupMessageEvent) -> bool:
     )
 
 
-def _contains_image(event: GroupMessageEvent) -> bool:
+def _contains_image(event: MessageEvent) -> bool:
     """消息是否包含图片消息段。"""
     return any(segment.type == "image" for segment in event.message)
 

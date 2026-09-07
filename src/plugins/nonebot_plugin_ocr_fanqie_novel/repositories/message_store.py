@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -54,7 +54,7 @@ class VerificationEventWrite:
     event_type: str
     protocol_id: str | None = None
     success: bool | None = None
-    detail: dict[str, Any] = field(default_factory=dict)
+    detail: dict[str, Any] | None = None
     trace_id: str | None = None
 
 

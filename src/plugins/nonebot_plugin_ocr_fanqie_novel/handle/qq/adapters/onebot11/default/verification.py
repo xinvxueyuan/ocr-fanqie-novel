@@ -15,6 +15,7 @@ from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
 )
 from nonebot.adapters.onebot.v11.event import (
+    MessageEvent,
     PrivateMessageEvent as OneBot11PrivateMessageEvent,
 )
 from nonebot.adapters.onebot.v11.message import Message, MessageSegment
@@ -88,7 +89,7 @@ def wrapped[T: Callable[..., Awaitable[Any]]](func: T) -> T:
     return wrapper  # type: ignore[return-value]
 
 
-def _image_url(event: GroupMessageEvent) -> str | None:
+def _image_url(event: MessageEvent) -> str | None:
     """从群消息中提取首张图片的 URL；无 URL 时回退到 file 字段。"""
     for segment in event.message:
         if segment.type != "image":

@@ -792,7 +792,6 @@ async def test_private_submission_silent_without_waiting(app: App) -> None:
             sub_type="friend",
             message_id=7,
             user_id=_USER_ID,
-            anonymous=None,
             sender={"user_id": _USER_ID, "nickname": "某用户"},
             raw_message="[图片]",
             message=OneBot11Message([
