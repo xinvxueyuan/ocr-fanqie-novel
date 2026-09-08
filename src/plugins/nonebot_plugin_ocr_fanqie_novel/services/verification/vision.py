@@ -64,6 +64,8 @@ class VisionVerdict:
         author: 作者名。
         rating: 评分星数。
         raw: 视觉模型原始 JSON 字符串（审计用）。
+        prompt: 发送给视觉模型的完整提示词（审计用）。
+        model: 使用的视觉模型名（审计用）。
 
     """
 
@@ -75,6 +77,8 @@ class VisionVerdict:
     author: str | None = None
     rating: str | None = None
     raw: str = ""
+    prompt: str = ""
+    model: str = ""
 
 
 def _author_whitelist_text(group_id: int) -> str:
@@ -124,7 +128,13 @@ def _optional_str(data: dict[str, Any], key: str) -> str | None:
     return None
 
 
-def _verdict_from_dict(data: dict[str, Any], raw: str) -> VisionVerdict:
+def _verdict_from_dict(
+    data: dict[str, Any],
+    raw: str,
+    *,
+    prompt: str = "",
+    model: str = "",
+) -> VisionVerdict:
     passed = bool(data.get("passed"))
     return VisionVerdict(
         passed=passed,
@@ -135,6 +145,8 @@ def _verdict_from_dict(data: dict[str, Any], raw: str) -> VisionVerdict:
         author=_optional_str(data, "author"),
         rating=_optional_str(data, "rating"),
         raw=raw,
+        prompt=prompt,
+        model=model,
     )
 
 
@@ -178,6 +190,7 @@ async def vision_fallback(image_url: str, group_id: int) -> VisionVerdict | None
     if cfg is None:
         return None
     base, key, model = cfg
+    prompt = _build_prompt(group_id)
 
     try:
         client = AsyncOpenAI(api_key=key, base_url=base)
@@ -187,7 +200,7 @@ async def vision_fallback(image_url: str, group_id: int) -> VisionVerdict | None
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": _build_prompt(group_id)},
+                        {"type": "text", "text": prompt},
                         {"type": "image_url", "image_url": {"url": image_url}},
                     ],
                 }
@@ -204,7 +217,7 @@ async def vision_fallback(image_url: str, group_id: int) -> VisionVerdict | None
     if parsed is None:
         logger.warning("视觉兜底响应无法解析为 JSON: %s", content[:200])
         return None
-    return _verdict_from_dict(parsed, raw=content)
+    return _verdict_from_dict(parsed, raw=content, prompt=prompt, model=model)
 
 
 def _vision_config() -> tuple[str, str, str] | None:

@@ -102,7 +102,12 @@ async def start_verification(
 
     member = await actions.get_member_info(bot, group_id, user_id)
     if member is None:
-        logger.info("引导前检查：成员 {} 已不在群 {} 中，结束会话", user_id, group_id)
+        logger.info(
+            "引导前检查：成员 {} 已不在群 {} 中，结束会话 trace={}",
+            user_id,
+            group_id,
+            record.trace_id,
+        )
         get_session_store().remove(str(group_id), str(user_id))
         return None
     if member.is_muted:
@@ -115,10 +120,11 @@ async def start_verification(
     await _record_event(record, event_type="verify.start")
     await actions.send_guide(bot, group_id, user_id)
     logger.info(
-        "新成员 {} 进入群 {} 验证流程，截止 {}",
+        "新成员 {} 进入群 {} 验证流程，截止 {} trace={}",
         user_id,
         group_id,
         record.expires_at.isoformat(),
+        record.trace_id,
     )
     return record
 
@@ -149,7 +155,12 @@ async def handle_submission(
 
     member = await actions.get_member_info(bot, group_id, user_id)
     if member is None:
-        logger.info("提交处理：成员 {} 已不在群 {} 中，结束会话", user_id, group_id)
+        logger.info(
+            "提交处理：成员 {} 已不在群 {} 中，结束会话 trace={}",
+            user_id,
+            group_id,
+            record.trace_id,
+        )
         store.remove(str(group_id), str(user_id))
         return "你已不在群聊中，无需验证。"
     if member.is_muted and not record.is_muted:
@@ -172,19 +183,28 @@ async def handle_submission(
                 success=True,
                 detail={
                     "fallback": "vision",
+                    "model": verdict.model,
+                    "prompt": verdict.prompt,
+                    "image_url": image_url,
                     "raw": verdict.raw,
                     "passed": verdict.passed,
                     "reason": verdict.reason,
                 },
             )
             if verdict.passed:
-                logger.info("视觉兜底判定通过 group={} user={}", group_id, user_id)
+                logger.info(
+                    "视觉兜底判定通过 group={} user={} trace={}",
+                    group_id,
+                    user_id,
+                    record.trace_id,
+                )
                 return await _handle_pass(bot, group_id, user_id)
             logger.info(
-                "视觉兜底判定拒绝 group={} user={} reason={}",
+                "视觉兜底判定拒绝 group={} user={} reason={} trace={}",
                 group_id,
                 user_id,
                 verdict.reason,
+                record.trace_id,
             )
             return await _handle_reject(
                 bot,
@@ -207,14 +227,17 @@ async def handle_submission(
     reject_reason = policy_check.reason if not policy_check.passed else verdict.reason
 
     if reject_reason is None:
-        logger.info("验证通过 group={} user={}", group_id, user_id)
+        logger.info(
+            "验证通过 group={} user={} trace={}", group_id, user_id, record.trace_id
+        )
         return await _handle_pass(bot, group_id, user_id)
 
     logger.info(
-        "验证拒绝 group={} user={} reason={}",
+        "验证拒绝 group={} user={} reason={} trace={}",
         group_id,
         user_id,
         reject_reason,
+        record.trace_id,
     )
     return await _handle_reject(bot, group_id, user_id, evidence, reject_reason)
 
@@ -491,16 +514,25 @@ async def handle_timeout(group_id: str, user_id: str) -> None:
         return
     bot_id = record.bot_id
     if not bot_id:
-        logger.warning("会话缺少 bot_id，跳过超时处理: {}", (group_id, user_id))
+        logger.warning(
+            "会话缺少 bot_id，跳过超时处理: {} trace={}",
+            (group_id, user_id),
+            record.trace_id,
+        )
         return
     bot = await _get_bot(bot_id)
     if bot is None:
-        logger.warning("找不到 Bot {}，跳过超时处理", bot_id)
+        logger.warning("找不到 Bot {}，跳过超时处理 trace={}", bot_id, record.trace_id)
         return
 
     member = await actions.get_member_info(bot, int(group_id), int(user_id))
     if member is None:
-        logger.info("超时处理：成员 {} 已不在群 {} 中，直接结束", user_id, group_id)
+        logger.info(
+            "超时处理：成员 {} 已不在群 {} 中，直接结束 trace={}",
+            user_id,
+            group_id,
+            record.trace_id,
+        )
         ended = store.end(group_id, user_id, status="expired")
         await _persist_session(ended)
         await _record_event(
@@ -717,10 +749,16 @@ async def _handle_pass(
 ) -> str:
     """FR5：通过验证，发送欢迎消息。"""
     store = get_session_store()
+    record = store.get(str(group_id), str(user_id))
 
     member = await actions.get_member_info(bot, group_id, user_id)
     if member is None:
-        logger.info("放行处理：成员 {} 已不在群 {} 中，仅结束会话", user_id, group_id)
+        logger.info(
+            "放行处理：成员 {} 已不在群 {} 中，仅结束会话 trace={}",
+            user_id,
+            group_id,
+            record.trace_id if record else None,
+        )
         ended = store.end(str(group_id), str(user_id), status="approved")
         await _persist_session(ended)
         await _record_event(ended, event_type="verify.pass", success=True)
@@ -863,18 +901,29 @@ async def handle_admin_decision_timeout(group_id: str, user_id: str) -> None:
         return
     bot_id = record.bot_id
     if not bot_id:
-        logger.warning("会话缺少 bot_id，跳过管理决策超时处理: {}", (group_id, user_id))
+        logger.warning(
+            "会话缺少 bot_id，跳过管理决策超时处理: {} trace={}",
+            (group_id, user_id),
+            record.trace_id,
+        )
         await _persist_session(store.end(group_id, user_id, status="expired"))
         return
     bot = await _get_bot(bot_id)
     if bot is None:
-        logger.warning("找不到 Bot {}，跳过管理决策超时处理", bot_id)
+        logger.warning(
+            "找不到 Bot {}，跳过管理决策超时处理 trace={}", bot_id, record.trace_id
+        )
         await _persist_session(store.end(group_id, user_id, status="expired"))
         return
 
     member = await actions.get_member_info(bot, int(group_id), int(user_id))
     if member is None:
-        logger.info("管理决策超时：成员 {} 已不在群 {} 中，直接结束", user_id, group_id)
+        logger.info(
+            "管理决策超时：成员 {} 已不在群 {} 中，直接结束 trace={}",
+            user_id,
+            group_id,
+            record.trace_id,
+        )
         ended = store.end(group_id, user_id, status="expired")
         await _persist_session(ended)
         await _record_event(
@@ -895,7 +944,12 @@ async def handle_admin_decision_timeout(group_id: str, user_id: str) -> None:
         success=True,
         detail={"left_group": False},
     )
-    logger.info("管理决策超时：成员 {} 已从群 {} 移出", user_id, group_id)
+    logger.info(
+        "管理决策超时：成员 {} 已从群 {} 移出 trace={}",
+        user_id,
+        group_id,
+        record.trace_id,
+    )
 
 
 async def restore_pending_sessions() -> int:
@@ -983,7 +1037,11 @@ async def _persist_session(record: SessionRecord | None) -> None:
                 trace_id=record.trace_id,
             )
     except Exception:  # noqa: BLE001 - 持久化失败不阻断主流程
-        logger.exception("持久化验证会话失败: {}", (record.group_id, record.user_id))
+        logger.exception(
+            "持久化验证会话失败: {} trace={}",
+            (record.group_id, record.user_id),
+            record.trace_id,
+        )
 
 
 async def _record_event(

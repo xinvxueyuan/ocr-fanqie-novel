@@ -47,6 +47,8 @@ class TestVerdictFromDict:
         assert verdict.author == "阿百川大鬼"
         assert verdict.rating == "★★★"
         assert verdict.raw
+        assert verdict.prompt == ""
+        assert verdict.model == ""
 
     def test_minimal_fields(self) -> None:
         verdict = vision._verdict_from_dict({"passed": False}, raw="{}")
@@ -190,6 +192,8 @@ class TestVisionFallback:
         assert verdict.passed is True
         assert verdict.book_name == "书名"
         assert verdict.author == "作者"
+        assert verdict.model == "deepseek-v4-flash-vision-exp"
+        assert "书评详情" in verdict.prompt
 
     @pytest.mark.asyncio
     async def test_openai_error_returns_none(self) -> None:
