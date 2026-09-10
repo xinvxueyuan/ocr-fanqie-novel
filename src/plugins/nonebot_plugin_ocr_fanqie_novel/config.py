@@ -50,13 +50,13 @@ class Config(BaseModel):
         fanqie_allow_group_admin_commands: 是否允许群内管理员（admin/群主）
             使用 /keep、/kick 等命令。为 True 时，除配置的管理员外，
             群内的管理员与群主也可执行；为 False 时仅配置的管理员可执行。
-            默认 False（关闭）。
+            默认 True（开启，群管理员默认可用）。
 
     """
 
     fanqie_verify_groups: set[int] = Field(default_factory=set)
     fanqie_admin_ids: set[int] = Field(default_factory=set)
-    fanqie_allow_group_admin_commands: bool = False
+    fanqie_allow_group_admin_commands: bool = True
     fanqie_welcome_message: str = (
         "欢迎新人进群，记得看先去群公告或群文件教程，"
         "如果需要留下需要发带有阅读时长的书评。"

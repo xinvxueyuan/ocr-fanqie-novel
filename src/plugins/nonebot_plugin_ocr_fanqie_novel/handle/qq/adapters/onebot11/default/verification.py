@@ -33,6 +33,7 @@ from ......handle.qq.commands.verification import (
     kick_cmd,
     pending_list_cmd,
     private_image_submission,
+    processing_cmd,
     reload_config_cmd,
     review_cmd,
     verify_cmd,
@@ -442,6 +443,34 @@ async def on_admin_pending_list(
             left = f"{hours} 小时 {minutes} 分" if hours else f"{minutes} 分"
             lines.append(f"QQ {record.user_id}（剩余 {left}，/keep 或 /kick）")
         reply = f"等待管理员决策的成员 {len(records)} 人：\n" + "\n".join(lines)
+    await bot.send_group_msg(group_id=event.group_id, message=reply)
+
+
+@_register(processing_cmd)
+async def on_processing_list(
+    bot: OneBot11Bot,
+    event: GroupMessageEvent,
+) -> None:
+    """查询本群正在等待提交截图的成员列表。"""
+    if not _is_admin_user(event):
+        return
+    from ......services.verification import get_session_store
+
+    records = get_session_store().list_waiting_by_group(str(event.group_id))
+    if not records:
+        reply = "当前没有等待提交截图的验证成员。"
+    else:
+        now = datetime.now(UTC)
+        lines: list[str] = []
+        for record in sorted(
+            records,
+            key=lambda r: _ensure_aware(r.expires_at) or now,
+        ):
+            exp = _ensure_aware(record.expires_at) or now
+            remaining = max(0, int((exp - now).total_seconds()))
+            minutes = (remaining + 59) // 60
+            lines.append(f"QQ {record.user_id}（剩余 {minutes} 分，/keep 或 /kick）")
+        reply = f"等待提交截图的成员 {len(records)} 人：\n" + "\n".join(lines)
     await bot.send_group_msg(group_id=event.group_id, message=reply)
 
 

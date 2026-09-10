@@ -18,7 +18,7 @@ def test_plugin_config_defaults() -> None:
     assert cfg.fanqie_admin_ids == set()
     assert cfg.fanqie_book_name_max_len == 100
     assert cfg.fanqie_remind_before_kick == (3600, 300)
-    assert cfg.fanqie_allow_group_admin_commands is False
+    assert cfg.fanqie_allow_group_admin_commands is True
 
 
 def test_plugin_config_from_global() -> None:

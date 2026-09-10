@@ -487,6 +487,28 @@ async def test_list_waiting_by_user_filters() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_waiting_by_group_filters() -> None:
+    """按群列出 waiting 会话（处理中列表用）。"""
+    store = SessionStore()
+    _start(store, user="10001")  # group 123
+    store.start(
+        group_id="456",
+        user_id="20001",
+        bot_id="bot1",
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+    store.await_admin("123", "10001")  # 转 awaiting_admin，不再是 waiting
+
+    assert store.list_waiting_by_group("123") == ()
+    rows = store.list_waiting_by_group("456")
+    assert len(rows) == 1
+    assert rows[0].user_id == "20001"
+    store.close()
+
+
+@pytest.mark.asyncio
 async def test_private_target_get_set_clear() -> None:
     """私聊验证目标群选择状态的存取与清除。"""
     store = SessionStore()

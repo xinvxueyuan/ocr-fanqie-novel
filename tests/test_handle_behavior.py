@@ -713,6 +713,69 @@ async def test_pending_list_cmd_empty(app: App) -> None:
 
 
 @pytest.mark.asyncio
+async def test_processing_list_cmd_lists_waiting(app: App) -> None:
+    """处理中列表命令应只列本群 waiting（等待截图）的成员。"""
+    from nonebot.adapters.onebot.v11 import (
+        Bot as OneBot11Bot,
+        GroupMessageEvent,
+        Message,
+        MessageSegment,
+    )
+
+    from src.plugins.nonebot_plugin_ocr_fanqie_novel.services.verification import (
+        get_session_store,
+    )
+
+    store = get_session_store()
+    store.start(
+        group_id=str(_GROUP_ID),
+        user_id="10001",
+        bot_id=str(_SELF_ID),
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+    # 20001 转 awaiting_admin，不应出现在处理中列表
+    store.start(
+        group_id=str(_GROUP_ID),
+        user_id="20001",
+        bot_id=str(_SELF_ID),
+        platform_id="qq",
+        adapter_id="~onebot.v11",
+        protocol_id="default",
+    )
+    store.await_admin(str(_GROUP_ID), "20001")
+
+    async with app.test_matcher(cmd_module.processing_cmd) as ctx:
+        bot = ctx.create_bot(base=OneBot11Bot)
+        event = GroupMessageEvent(
+            time=int(time.time()),
+            self_id=_SELF_ID,
+            post_type="message",
+            message_type="group",
+            sub_type="normal",
+            message_id=1,
+            group_id=_GROUP_ID,
+            user_id=1330509996,
+            anonymous=None,
+            sender={"user_id": 1330509996, "nickname": "owner", "role": "owner"},
+            raw_message="/处理中列表",
+            message=Message([MessageSegment.text("/处理中列表")]),
+            font=0,
+        )  # type: ignore[call-arg]
+        ctx.should_call_api(
+            "send_group_msg",
+            {
+                "group_id": _GROUP_ID,
+                "message": (
+                    "等待提交截图的成员 1 人：\nQQ 10001（剩余 10 分，/keep 或 /kick）"
+                ),
+            },
+        )
+        ctx.receive_event(bot, event)
+
+
+@pytest.mark.asyncio
 async def test_approve_cmd_superuser_direct_approve(app: App) -> None:
     """管理员 /通过 能直接批准验证中的新成员。"""
     from nonebot.adapters.onebot.v11 import (

@@ -110,6 +110,15 @@ pending_list_cmd = on_command(
     block=True,
 )
 
+# 处理中列表：查询本群正在等待提交截图的成员。
+processing_cmd = on_command(
+    "处理中列表",
+    aliases={"处理中", "验证中"},
+    permission=SUPERUSER,
+    priority=5,
+    block=True,
+)
+
 # 查看白名单：展示当前群已配置的作者与作品列表。
 whitelist_cmd = on_command(
     "查看白名单",
@@ -140,6 +149,7 @@ __all__ = [
     "kick_cmd",
     "pending_list_cmd",
     "private_image_submission",
+    "processing_cmd",
     "reload_config_cmd",
     "review_cmd",
     "verify_cmd",

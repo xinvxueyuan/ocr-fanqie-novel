@@ -119,6 +119,14 @@ class SessionStore:
             record for record in self._sessions.values() if record.status == "waiting"
         )
 
+    def list_waiting_by_group(self, group_id: str) -> tuple[SessionRecord, ...]:
+        """返回某群所有 waiting 状态会话的快照（「处理中列表」用）。"""
+        return tuple(
+            record
+            for record in self._sessions.values()
+            if record.status == "waiting" and record.group_id == group_id
+        )
+
     def list_waiting_by_user(self, user_id: str) -> tuple[SessionRecord, ...]:
         """返回某用户在全部群中的 waiting 会话（私聊验证查群用）。
 
