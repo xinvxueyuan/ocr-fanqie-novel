@@ -43,6 +43,8 @@ class ReadingEvidence:
         book_name: 书名字段。
         author: 作者名字段。
         review_text: 书评正文字段。
+        review_detail_page: 是否识别到「书评详情」标题（确认截图确实是
+            书评详情页，而非列表页或其他页面）。
 
     """
 
@@ -55,16 +57,19 @@ class ReadingEvidence:
     book_name: ExtractedField | None = None
     author: ExtractedField | None = None
     review_text: ExtractedField | None = None
+    review_detail_page: ExtractedField | None = None
 
     @property
     def is_sufficient(self) -> bool:
         """是否已提取到足够信息（FR3）。
 
-        必须检测到「我」徽章，并提取到书名与作者。
+        必须识别到「书评详情」标题（确认确实是书评页）、检测到「我」
+        徽章，并提取到书名与作者。
 
         """
         return (
             self.is_self_review
+            and self.review_detail_page is not None
             and self.book_name is not None
             and self.author is not None
         )

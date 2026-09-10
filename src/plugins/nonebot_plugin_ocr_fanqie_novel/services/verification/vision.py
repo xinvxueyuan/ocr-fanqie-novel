@@ -33,16 +33,20 @@ _VERDICT_PROMPT = """\
 判断它是否是一张有效的、由用户本人发布的书评详情页截图。
 
 判定要求：
-1. 页面须是「书评详情」页（顶部有「书评详情」标题），而非书列表页或其他页面。
-2. 须检测到「我」徽章（表示这是用户本人发布的书评），否则视为无效。
-3. 须能识别出书名与作者名。
-4. 作者名必须命中以下白名单之一：{author_whitelist}
+1. 页面顶部必须出现「书评详情」四个字的标题文本，否则视为无效（不是书评详情页）。
+2. 必须能识别出五角星形（5 角形）的评分组件（通常 1~5 颗星，位于书名附近），
+   否则视为无效。
+3. 须检测到「我」徽章（表示这是用户本人发布的书评），否则视为无效。
+4. 须能识别出书名与作者名。
+5. 作者名必须命中以下白名单之一：{author_whitelist}
 
 请只输出一个 JSON 对象（不要输出任何其他文字），字段如下：
 {{
   "passed": true 或 false,
   "reason": "未通过时的原因；通过时为 null",
   "is_self_review": true 或 false,
+  "has_review_detail_title": true 或 false,
+  "has_rating_stars": true 或 false,
   "reader_name": "读者名或 null",
   "book_name": "书名或 null",
   "author": "作者名或 null",
@@ -63,6 +67,8 @@ class VisionVerdict:
         book_name: 书名。
         author: 作者名。
         rating: 评分星数。
+        has_review_detail_title: 是否识别到「书评详情」标题。
+        has_rating_stars: 是否识别到五角星评分组件。
         raw: 视觉模型原始 JSON 字符串（审计用）。
         prompt: 发送给视觉模型的完整提示词（审计用）。
         model: 使用的视觉模型名（审计用）。
@@ -76,6 +82,8 @@ class VisionVerdict:
     book_name: str | None = None
     author: str | None = None
     rating: str | None = None
+    has_review_detail_title: bool = False
+    has_rating_stars: bool = False
     raw: str = ""
     prompt: str = ""
     model: str = ""
@@ -140,6 +148,8 @@ def _verdict_from_dict(
         passed=passed,
         reason=_optional_str(data, "reason"),
         is_self_review=bool(data.get("is_self_review")),
+        has_review_detail_title=bool(data.get("has_review_detail_title")),
+        has_rating_stars=bool(data.get("has_rating_stars")),
         reader_name=_optional_str(data, "reader_name"),
         book_name=_optional_str(data, "book_name"),
         author=_optional_str(data, "author"),

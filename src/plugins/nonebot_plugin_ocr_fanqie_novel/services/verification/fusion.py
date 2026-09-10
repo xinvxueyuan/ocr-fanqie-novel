@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 # 参与融合的文本字段（每个都是 ExtractedField | None）。
 _FUSION_FIELDS: tuple[str, ...] = (
+    "review_detail_page",
     "reader_name",
     "publish_time",
     "rating",
@@ -118,6 +119,7 @@ def merge_evidences(
                     book_name=merged.book_name,
                     author=merged.author,
                     review_text=merged.review_text,
+                    review_detail_page=merged.review_detail_page,
                 )
                 break
     return merged

@@ -285,3 +285,27 @@ def test_merged_book_author_line_with_whitelist() -> None:
     assert evidence.author is not None
     assert evidence.author.value == "百舸川掮客"
     assert evidence.is_sufficient is True
+
+
+def test_review_detail_page_extracted() -> None:
+    """应识别到「书评详情」标题，确认确实是书评详情页。"""
+    evidence = extract_reading_evidence(_result(_self_review_layout()))
+
+    assert evidence.review_detail_page is not None
+    assert evidence.review_detail_page.value == "书评详情"
+    assert evidence.review_detail_page.confidence == 1.0
+
+
+def test_review_detail_page_missing() -> None:
+    """无「书评详情」标题行时应判为信息不足。"""
+    lines = [
+        _line("新v学员", 403),
+        _line("我", 412),
+        _line("刚刚", 495),
+        _line("综漫：吉他雇佣兵无法找到归宿？", 1000),
+        _line("阿百川大鬼", 1089),
+    ]
+    evidence = extract_reading_evidence(_result(lines))
+
+    assert evidence.review_detail_page is None
+    assert evidence.is_sufficient is False

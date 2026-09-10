@@ -187,6 +187,66 @@ async def test_handle_submission_passes(
 
 
 @pytest.mark.asyncio
+async def test_vision_review_vetoes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OCR 通过但视觉复核否决时，应拒绝。"""
+    from unittest.mock import AsyncMock
+
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_evidence() for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
+
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
+    monkeypatch.setattr(
+        flow_module.vision,
+        "vision_fallback",
+        AsyncMock(
+            return_value=flow_module.vision.VisionVerdict(
+                passed=False, reason="未识别到书评详情标题"
+            )
+        ),
+    )
+
+    bot: Any = FakeBot()
+    await start_verification(bot, group_id=123, user_id=10001)
+    reply = await handle_submission(
+        bot, group_id=123, user_id=10001, image_url="https://example.com/shelf.png"
+    )
+
+    assert "验证未通过" in reply
+
+
+@pytest.mark.asyncio
+async def test_vision_review_approves(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OCR 通过且视觉复核通过时，应放行。"""
+    from unittest.mock import AsyncMock
+
+    async def fake_recognize(url: str, *, models: list[str] | None = None) -> Any:
+        _ = (url, models)
+        return {
+            _m: _ocr_result_with_evidence() for _m in (models or ["PaddleOCR-VL-1.6"])
+        }
+
+    monkeypatch.setattr(flow_module, "recognize_image_url_multi", fake_recognize)
+    monkeypatch.setattr(
+        flow_module.vision,
+        "vision_fallback",
+        AsyncMock(
+            return_value=flow_module.vision.VisionVerdict(passed=True, reason=None)
+        ),
+    )
+
+    bot: Any = FakeBot()
+    await start_verification(bot, group_id=123, user_id=10001)
+    reply = await handle_submission(
+        bot, group_id=123, user_id=10001, image_url="https://example.com/shelf.png"
+    )
+
+    assert "验证通过" in reply
+
+
+@pytest.mark.asyncio
 async def test_handle_submission_insufficient_retries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

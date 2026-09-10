@@ -59,6 +59,18 @@ class TestVerdictFromDict:
         assert verdict.author is None
         assert verdict.rating is None
 
+    def test_has_flags(self) -> None:
+        verdict = vision._verdict_from_dict(
+            {
+                "passed": True,
+                "has_review_detail_title": True,
+                "has_rating_stars": False,
+            },
+            raw="{}",
+        )
+        assert verdict.has_review_detail_title is True
+        assert verdict.has_rating_stars is False
+
 
 class TestVerdictToEvidence:
     def test_converts_fields(self) -> None:
@@ -107,6 +119,16 @@ class TestBuildPrompt:
             )
             prompt = vision._build_prompt(123)
         assert "未配置作者白名单" in prompt
+
+    def test_prompt_requires_detail_title_and_stars(self) -> None:
+        with patch.object(vision.policy, "get_policy") as get_policy:
+            get_policy.return_value.group_policy.return_value = SimpleNamespace(
+                is_configured=False,
+                author_names=frozenset(),
+            )
+            prompt = vision._build_prompt(123)
+        assert "书评详情" in prompt
+        assert "评分组件" in prompt
 
 
 class TestVisionConfig:

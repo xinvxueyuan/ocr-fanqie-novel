@@ -226,20 +226,82 @@ async def handle_submission(
     verdict = judgment.judge_evidence(evidence)
     reject_reason = policy_check.reason if not policy_check.passed else verdict.reason
 
-    if reject_reason is None:
+    if reject_reason is not None:
         logger.info(
-            "验证通过 group={} user={} trace={}", group_id, user_id, record.trace_id
+            "验证拒绝 group={} user={} reason={} trace={}",
+            group_id,
+            user_id,
+            reject_reason,
+            record.trace_id,
         )
-        return await _handle_pass(bot, group_id, user_id)
+        return await _handle_reject(bot, group_id, user_id, evidence, reject_reason)
+
+    return await _vision_review(bot, group_id, user_id, image_url, record)
+
+
+async def _vision_review(
+    bot: Bot,
+    group_id: int,
+    user_id: int,
+    image_url: str,
+    record: SessionRecord,
+) -> str:
+    """OCR 通过后调用视觉模型复核（第二道防线，持否决权）。
+
+    视觉模型否决则拒绝；通过或不可用则放行。
+
+    """
+    vision_verdict = await vision.vision_fallback(image_url, group_id)
+    if vision_verdict is not None:
+        await _record_event(
+            record,
+            event_type="verify.vision_review",
+            success=vision_verdict.passed,
+            detail={
+                "model": vision_verdict.model,
+                "prompt": vision_verdict.prompt,
+                "image_url": image_url,
+                "raw": vision_verdict.raw,
+                "passed": vision_verdict.passed,
+                "reason": vision_verdict.reason,
+                "has_review_detail_title": vision_verdict.has_review_detail_title,
+                "has_rating_stars": vision_verdict.has_rating_stars,
+            },
+        )
+        if not vision_verdict.passed:
+            logger.info(
+                "视觉复核否决 group={} user={} reason={} trace={}",
+                group_id,
+                user_id,
+                vision_verdict.reason,
+                record.trace_id,
+            )
+            fallback_evidence = vision.verdict_to_evidence(vision_verdict)
+            return await _handle_reject(
+                bot,
+                group_id,
+                user_id,
+                fallback_evidence,
+                vision_verdict.reason,
+            )
+        logger.info(
+            "视觉复核通过 group={} user={} trace={}",
+            group_id,
+            user_id,
+            record.trace_id,
+        )
+    else:
+        logger.info(
+            "视觉复核不可用（OCR 已通过，放行） group={} user={} trace={}",
+            group_id,
+            user_id,
+            record.trace_id,
+        )
 
     logger.info(
-        "验证拒绝 group={} user={} reason={} trace={}",
-        group_id,
-        user_id,
-        reject_reason,
-        record.trace_id,
+        "验证通过 group={} user={} trace={}", group_id, user_id, record.trace_id
     )
-    return await _handle_reject(bot, group_id, user_id, evidence, reject_reason)
+    return await _handle_pass(bot, group_id, user_id)
 
 
 async def _recognize_and_extract(
@@ -332,6 +394,7 @@ def _default_ocr_model() -> str:
 
 
 _FIELD_KEYS: tuple[str, ...] = (
+    "review_detail_page",
     "reader_name",
     "publish_time",
     "rating",

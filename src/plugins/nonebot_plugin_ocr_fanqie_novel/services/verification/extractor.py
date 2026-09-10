@@ -89,6 +89,7 @@ def extract_reading_evidence(
         return ReadingEvidence()
 
     self_marker_line = _find_self_marker(lines)
+    page_title_field = _extract_review_detail_page(lines)
     reader_field = _extract_reader_name(lines, self_marker_line)
     publish_field, publish_days = _extract_publish_time(lines, self_marker_line)
     rating_field = _extract_rating(lines)
@@ -108,6 +109,7 @@ def extract_reading_evidence(
 
     return ReadingEvidence(
         is_self_review=self_marker_line is not None,
+        review_detail_page=page_title_field,
         reader_name=reader_field,
         publish_time=publish_field,
         publish_days_ago=publish_days,
@@ -124,6 +126,18 @@ def _find_self_marker(lines: list[OCRTextLine]) -> OCRTextLine | None:
     for line in lines:
         if line.text.strip() == _SELF_MARKER:
             return line
+    return None
+
+
+def _extract_review_detail_page(lines: list[OCRTextLine]) -> ExtractedField | None:
+    """提取「书评详情」标题行，确认截图确实是书评详情页。"""
+    for line in lines:
+        if line.text.strip() == _PAGE_TITLE:
+            return ExtractedField(
+                value=_PAGE_TITLE,
+                source_text=line.text,
+                confidence=line.confidence,
+            )
     return None
 
 
