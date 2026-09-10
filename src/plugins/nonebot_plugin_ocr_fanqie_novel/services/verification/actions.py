@@ -126,7 +126,7 @@ async def send_guide(bot: OneBot11Bot, group_id: int, user_id: int) -> bool:
         "【如何查找书评】进入番茄小说 App -> 右下角「我的」页面按压进入 -> "
         "点我的头像栏目进入用户信息页面 -> 在顶级菜单栏找到「讨论」并进入 -> "
         "在子菜单栏找到「书评」 -> 滚动屏幕找到本书的书评并点击进入「书评详情页」 -> "
-        "截图保存并发送到本 QQ 群。"
+        "直接截取手机整个屏幕（不要裁剪，含顶部「书评详情」标题）发送到本 QQ 群。"
     )
     try:
         await bot.send_group_msg(group_id=group_id, message=message)
