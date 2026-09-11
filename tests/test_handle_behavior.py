@@ -937,3 +937,25 @@ def _make_monkeypatch() -> Any:
     from pytest import MonkeyPatch
 
     return MonkeyPatch()
+
+
+def test_is_sticker_and_contains_image_exclude_emoji() -> None:
+    """表情包（带 emoji 字段的 image 段）不应被当作验证截图。"""
+    from nonebot.adapters.onebot.v11.message import Message, MessageSegment
+
+    sticker = MessageSegment(
+        type="image",
+        data={"file": "x", "emojiId": "abc", "emojiPackageId": "1"},
+    )
+    assert cmd_module._is_sticker(sticker) is True
+    assert cmd_module._is_sticker(MessageSegment.image("http://x/a.png")) is False
+    assert cmd_module._is_sticker(MessageSegment(type="face", data={"id": "1"})) is False
+
+    class _FakeEvent:
+        def __init__(self, message: Message) -> None:
+            self.message = message
+
+    sticker_event: Any = _FakeEvent(Message([sticker]))
+    assert cmd_module._contains_image(sticker_event) is False
+    image_event: Any = _FakeEvent(Message([MessageSegment.image("http://x/a.png")]))
+    assert cmd_module._contains_image(image_event) is True

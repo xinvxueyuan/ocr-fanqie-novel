@@ -11,6 +11,7 @@ from nonebot.adapters.onebot.v11.event import (
     MessageEvent,
     PrivateMessageEvent,
 )
+from nonebot.adapters.onebot.v11.message import MessageSegment
 from nonebot.permission import SUPERUSER
 
 from ....services.verification import get_session_store
@@ -24,9 +25,31 @@ def _has_pending_session(event: GroupMessageEvent) -> bool:
     )
 
 
+def _is_sticker(segment: MessageSegment) -> bool:
+    """判断 image 段是否为表情包（商城表情转换而来，带 emoji 字段）。
+
+    LLOneBot/NapCat 里商城表情（mface）转换为 image 类型时，data 会带
+    ``emojiId``/``emojiPackageId``（LLOneBot 驼峰）或 ``emoji_id``/
+    ``emoji_package_id``（NapCat 下划线）；普通图片没有这些字段。
+
+    """
+    if segment.type != "image":
+        return False
+    data = segment.data
+    return bool(
+        data.get("emojiId")
+        or data.get("emojiPackageId")
+        or data.get("emoji_id")
+        or data.get("emoji_package_id")
+    )
+
+
 def _contains_image(event: MessageEvent) -> bool:
-    """消息是否包含图片消息段。"""
-    return any(segment.type == "image" for segment in event.message)
+    """消息是否包含图片消息段（排除表情包/商城表情）。"""
+    return any(
+        segment.type == "image" and not _is_sticker(segment)
+        for segment in event.message
+    )
 
 
 # FR1：新人入群。低优先级、不 block，确保其他插件也能响应群增事件。
