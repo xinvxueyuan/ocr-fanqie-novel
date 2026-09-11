@@ -149,94 +149,115 @@ async def handle_submission(
 
     """
     store = get_session_store()
-    record = store.get(str(group_id), str(user_id))
-    if record is None or record.status != "waiting":
+    if not store.try_claim(str(group_id), str(user_id)):
         return "当前没有待处理的验证请求。"
+    try:
+        record = store.get(str(group_id), str(user_id))
+        if record is None or record.status != "waiting":
+            return "当前没有待处理的验证请求。"
 
-    member = await actions.get_member_info(bot, group_id, user_id)
-    if member is None:
-        logger.info(
-            "提交处理：成员 {} 已不在群 {} 中，结束会话 trace={}",
-            user_id,
-            group_id,
-            record.trace_id,
-        )
-        store.remove(str(group_id), str(user_id))
-        return "你已不在群聊中，无需验证。"
-    if member.is_muted and not record.is_muted:
-        record = store.set_muted(str(group_id), str(user_id), is_muted=True) or record
-        await _persist_session(record)
-
-    if not image_url:
-        return await _handle_download_failure(group_id, user_id)
-
-    evidence = await _recognize_and_extract(image_url, group_id, record)
-    if evidence is None:
-        # OCR 识别不出时改用视觉模型看图兜底判定。
-        verdict = await vision.vision_fallback(image_url, group_id)
-        if verdict is not None:
-            fallback_evidence = vision.verdict_to_evidence(verdict)
-            await _persist_last_extracted(record, fallback_evidence)
-            await _record_event(
-                record,
-                event_type="verify.ocr",
-                success=True,
-                detail={
-                    "fallback": "vision",
-                    "model": verdict.model,
-                    "prompt": verdict.prompt,
-                    "image_url": image_url,
-                    "raw": verdict.raw,
-                    "passed": verdict.passed,
-                    "reason": verdict.reason,
-                },
-            )
-            if verdict.passed:
-                logger.info(
-                    "视觉兜底判定通过 group={} user={} trace={}",
-                    group_id,
-                    user_id,
-                    record.trace_id,
-                )
-                return await _handle_pass(bot, group_id, user_id)
+        member = await actions.get_member_info(bot, group_id, user_id)
+        if member is None:
             logger.info(
-                "视觉兜底判定拒绝 group={} user={} reason={} trace={}",
-                group_id,
+                "提交处理：成员 {} 已不在群 {} 中，结束会话 trace={}",
                 user_id,
-                verdict.reason,
+                group_id,
                 record.trace_id,
             )
-            return await _handle_reject(
-                bot,
+            store.remove(str(group_id), str(user_id))
+            return "你已不在群聊中，无需验证。"
+        if member.is_muted and not record.is_muted:
+            record = (
+                store.set_muted(str(group_id), str(user_id), is_muted=True) or record
+            )
+            await _persist_session(record)
+
+        if not image_url:
+            return await _handle_download_failure(group_id, user_id)
+
+        evidence = await _recognize_and_extract(image_url, group_id, record)
+        if evidence is None:
+            return await _handle_vision_fallback(
+                bot, group_id, user_id, image_url, record
+            )
+        await _persist_last_extracted(record, evidence)
+
+        if not evidence.is_sufficient:
+            logger.info(
+                "信息不足 trace={} group={} user={}", record.trace_id, group_id, user_id
+            )
+            return await _handle_insufficient(bot, group_id, user_id)
+
+        policy_check = policy.get_policy().check(evidence, group_id)
+        verdict = judgment.judge_evidence(evidence)
+        reject_reason = (
+            policy_check.reason if not policy_check.passed else verdict.reason
+        )
+
+        if reject_reason is not None:
+            logger.info(
+                "验证拒绝 group={} user={} reason={} trace={}",
                 group_id,
                 user_id,
-                fallback_evidence,
-                verdict.reason,
+                reject_reason,
+                record.trace_id,
             )
-        return await _handle_ocr_failure(bot, group_id, user_id)
-    await _persist_last_extracted(record, evidence)
+            return await _handle_reject(bot, group_id, user_id, evidence, reject_reason)
 
-    if not evidence.is_sufficient:
-        logger.info(
-            "信息不足 trace={} group={} user={}", record.trace_id, group_id, user_id
+        return await _vision_review(bot, group_id, user_id, image_url, record)
+    finally:
+        store.release(str(group_id), str(user_id))
+
+
+async def _handle_vision_fallback(
+    bot: Bot,
+    group_id: int,
+    user_id: int,
+    image_url: str,
+    record: SessionRecord,
+) -> str:
+    """OCR 识别不出时改用视觉模型看图兜底判定。"""
+    verdict = await vision.vision_fallback(image_url, group_id)
+    if verdict is not None:
+        fallback_evidence = vision.verdict_to_evidence(verdict)
+        await _persist_last_extracted(record, fallback_evidence)
+        await _record_event(
+            record,
+            event_type="verify.ocr",
+            success=True,
+            detail={
+                "fallback": "vision",
+                "model": verdict.model,
+                "prompt": verdict.prompt,
+                "image_url": image_url,
+                "raw": verdict.raw,
+                "passed": verdict.passed,
+                "reason": verdict.reason,
+            },
         )
-        return await _handle_insufficient(bot, group_id, user_id)
-
-    policy_check = policy.get_policy().check(evidence, group_id)
-    verdict = judgment.judge_evidence(evidence)
-    reject_reason = policy_check.reason if not policy_check.passed else verdict.reason
-
-    if reject_reason is not None:
+        if verdict.passed:
+            logger.info(
+                "视觉兜底判定通过 group={} user={} trace={}",
+                group_id,
+                user_id,
+                record.trace_id,
+            )
+            return await _handle_pass(bot, group_id, user_id)
         logger.info(
-            "验证拒绝 group={} user={} reason={} trace={}",
+            "视觉兜底判定拒绝 group={} user={} reason={} trace={}",
             group_id,
             user_id,
-            reject_reason,
+            verdict.reason,
             record.trace_id,
         )
-        return await _handle_reject(bot, group_id, user_id, evidence, reject_reason)
-
-    return await _vision_review(bot, group_id, user_id, image_url, record)
+        return await _handle_reject(
+            bot,
+            group_id,
+            user_id,
+            fallback_evidence,
+            verdict.reason,
+        )
+    return await _handle_ocr_failure(bot, group_id, user_id)
 
 
 async def _vision_review(

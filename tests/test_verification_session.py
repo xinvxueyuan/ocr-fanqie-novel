@@ -509,6 +509,17 @@ async def test_list_waiting_by_group_filters() -> None:
 
 
 @pytest.mark.asyncio
+async def test_try_claim_and_release() -> None:
+    """try_claim 应原子防并发：首次成功，处理中再取失败，release 后可再取。"""
+    store = SessionStore()
+    assert store.try_claim("123", "10001") is True
+    assert store.try_claim("123", "10001") is False
+    store.release("123", "10001")
+    assert store.try_claim("123", "10001") is True
+    store.close()
+
+
+@pytest.mark.asyncio
 async def test_private_target_get_set_clear() -> None:
     """私聊验证目标群选择状态的存取与清除。"""
     store = SessionStore()

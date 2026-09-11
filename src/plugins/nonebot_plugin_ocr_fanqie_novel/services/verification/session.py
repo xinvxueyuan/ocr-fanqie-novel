@@ -89,6 +89,8 @@ class SessionStore:
         self._admin_timeout_callback: TimeoutCallback | None = None
         self._reminder_callback: ReminderCallback | None = None
         self._closed = False
+        # 正在处理中的会话（防并发重复处理同一会话）。
+        self._processing: set[_SessionKey] = set()
         # 私聊验证：账号 → 已选目标群（多群待验证时记录用户的选定群）。
         self._private_targets: dict[str, str] = {}
 
@@ -107,6 +109,18 @@ class SessionStore:
     def get(self, group_id: str, user_id: str) -> SessionRecord | None:
         """返回活跃会话记录；不存在时返回 ``None``。"""
         return self._sessions.get((group_id, user_id))
+
+    def try_claim(self, group_id: str, user_id: str) -> bool:
+        """原子标记会话为「处理中」防并发重复处理；已在处理时返回 False。"""
+        key = (group_id, user_id)
+        if key in self._processing:
+            return False
+        self._processing.add(key)
+        return True
+
+    def release(self, group_id: str, user_id: str) -> None:
+        """清除会话的「处理中」标记。"""
+        self._processing.discard((group_id, user_id))
 
     def is_waiting(self, group_id: str, user_id: str) -> bool:
         """该成员是否存在处于 waiting 状态的会话。"""
