@@ -509,6 +509,26 @@ async def test_handle_timeout_notifies_and_ends(
 
 
 @pytest.mark.asyncio
+async def test_handle_timeout_bot_missing_expires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bot 缺失时超时处理应将会话转 expired，避免永久堆积（0 秒 bug）。"""
+    bot: Any = FakeBot()
+    await start_verification(bot, group_id=123, user_id=10001)
+
+    async def fake_get_bot(bot_id: str) -> Any:
+        _ = bot_id
+        return None
+
+    monkeypatch.setattr(flow_module, "_get_bot", fake_get_bot)
+    await handle_timeout("123", "10001")
+
+    record = get_session_store().get("123", "10001")
+    assert record is not None
+    assert record.status == "expired"
+
+
+@pytest.mark.asyncio
 async def test_admin_kick_decision() -> None:
     """管理员 /kick 应踢出并结束会话。"""
     bot: Any = FakeBot()

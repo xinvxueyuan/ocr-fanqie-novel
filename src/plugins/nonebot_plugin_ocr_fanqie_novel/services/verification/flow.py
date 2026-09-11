@@ -582,10 +582,12 @@ async def handle_timeout(group_id: str, user_id: str) -> None:
             (group_id, user_id),
             record.trace_id,
         )
+        await _persist_session(store.end(group_id, user_id, status="expired"))
         return
     bot = await _get_bot(bot_id)
     if bot is None:
         logger.warning("找不到 Bot {}，跳过超时处理 trace={}", bot_id, record.trace_id)
+        await _persist_session(store.end(group_id, user_id, status="expired"))
         return
 
     member = await actions.get_member_info(bot, int(group_id), int(user_id))
