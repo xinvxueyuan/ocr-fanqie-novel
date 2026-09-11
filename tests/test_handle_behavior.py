@@ -949,7 +949,9 @@ def test_is_sticker_and_contains_image_exclude_emoji() -> None:
     )
     assert cmd_module._is_sticker(sticker) is True
     assert cmd_module._is_sticker(MessageSegment.image("http://x/a.png")) is False
-    assert cmd_module._is_sticker(MessageSegment(type="face", data={"id": "1"})) is False
+    assert (
+        cmd_module._is_sticker(MessageSegment(type="face", data={"id": "1"})) is False
+    )
 
     class _FakeEvent:
         def __init__(self, message: Message) -> None:
